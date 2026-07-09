@@ -175,6 +175,29 @@ Network problem, not a mod problem:
 - Both PCs must run the **same game version** (and demo↔demo or full↔full,
   never mixed). Steam updates one PC before the other surprisingly often.
 
+## I pressed Join on the same PC that's hosting (solo testing)
+
+One game instance cannot be host and client at once — pressing F8 on the
+hosting machine used to connect the game *to itself*, ending the session and
+leaving an endless "connecting" load that eventually dumps you at the menu.
+The mod now refuses with a message instead. What solo testing CAN verify:
+host with F7, then check `coop_status` shows `HOSTING` and the map reloaded —
+everything past that genuinely needs the second PC (Steam won't run two
+copies of the game from one account, so there's no single-PC join test).
+
+## The game feels laggier after hosting (F7)
+
+Two sources, one fixable:
+
+- The mod's own background loops used to rescan the engine's object array
+  several times a second — v0.1.2 consolidated this to one scan per second,
+  which should remove most of the hitching. Update if you're on 0.1.1.
+- A listen server genuinely costs something: the game simulates networking
+  authority it never does in single-player. To isolate what's left, toggle
+  these off one at a time in `config.lua`: `ForceReplication` (biggest
+  candidate), `ShowHud`, `KeepWorldRunning`, then re-test with `coop_stop` /
+  F7.
+
 ## Joiner connects but is invisible / a floating camera
 
 This is the "no pawn" state the spawn fixer exists for:
@@ -205,10 +228,14 @@ This is the "no pawn" state the spawn fixer exists for:
   sides: the joiner sees their round-trip to the host; the host sees the
   joiner's. The host's own ping reading ~0 is correct, not a bug.
 - The HUD is built from engine UMG widgets at runtime; on some engine
-  versions that construction can fail. The mod then says
-  `On-screen HUD unavailable...` once and mirrors the same info to the UE4SS
-  console instead — `coop_ping` always works there. If you hit this, include
-  the logged error when reporting; it's fixable per-game.
+  versions that construction can fail. The mod then logs
+  `On-screen HUD attempt N failed (...)`, retries a few times, and falls back
+  to the UE4SS console until the next map change — `coop_ping` always works.
+  If you hit this, grab the exact reason and include it when reporting:
+
+  ```bash
+  grep -m3 "HUD attempt" "<Win64>/ue4ss/UE4SS.log"
+  ```
 - Ping showing `...` for a player means the engine hasn't measured it yet
   (a few seconds after joining) or the session isn't actually connected —
   check `coop_status`.
