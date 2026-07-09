@@ -22,6 +22,10 @@
 #   ./tools/install.sh --engine-version 5.3   # force the UE version instead
 #                                             # of reading it from the exe
 #                                             # (Echoes of Aincrad is 5.3)
+#   ./tools/install.sh --role host|guest      # skip the role question
+#   ./tools/install.sh --host-ip 100.1.2.3    # guest: save the host's IP
+#                                             # into config.lua
+#   ./tools/install.sh --no-prompt            # never ask questions
 #
 # The script also reads the game's Unreal Engine version out of the exe and
 # writes it into UE4SS-settings.ini ([EngineVersionOverride]) so UE4SS does
@@ -41,6 +45,9 @@ UE4SS_ZIP=""
 SKIP_UE4SS=0
 EXPERIMENTAL=0
 FORCED_ENGINE_VERSION=""
+ROLE=""
+HOST_IP=""
+NO_PROMPT=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -49,14 +56,61 @@ while [[ $# -gt 0 ]]; do
         --skip-ue4ss) SKIP_UE4SS=1; shift ;;
         --experimental) EXPERIMENTAL=1; shift ;;
         --engine-version) FORCED_ENGINE_VERSION="$2"; shift 2 ;;
+        --role)      ROLE="$2"; shift 2 ;;
+        --host-ip)   HOST_IP="$2"; shift 2 ;;
+        --no-prompt) NO_PROMPT=1; shift ;;
         -h|--help)   grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown option: $1 (try --help)"; exit 1 ;;
     esac
 done
 
 if [[ -n "$FORCED_ENGINE_VERSION" ]] && ! [[ "$FORCED_ENGINE_VERSION" =~ ^5\.[0-9]+$ ]]; then
-    printf 'ERROR: --engine-version must look like "5.6" (major.minor, no patch digit)\n' >&2
+    printf 'ERROR: --engine-version must look like "5.3" (major.minor, no patch digit)\n' >&2
     exit 1
+fi
+ROLE="$(printf '%s' "$ROLE" | tr '[:upper:]' '[:lower:]')"
+if [[ -n "$ROLE" && "$ROLE" != "host" && "$ROLE" != "guest" ]]; then
+    printf 'ERROR: --role must be "host" or "guest"\n' >&2
+    exit 1
+fi
+if [[ -n "$HOST_IP" ]] && ! [[ "$HOST_IP" =~ ^[A-Za-z0-9.:-]+$ ]]; then
+    printf 'ERROR: --host-ip does not look like an IP address or hostname: %s\n' "$HOST_IP" >&2
+    exit 1
+fi
+
+# ----------------------------------------------------------------------------
+# 0. Setup questions (asked up front so the rest runs unattended)
+# ----------------------------------------------------------------------------
+if [[ "$NO_PROMPT" -eq 0 && -z "$ROLE" && -t 0 ]]; then
+    echo
+    printf '\033[36mWho is this PC in your co-op session?\033[0m\n'
+    echo "  [1] HOST  - the world you'll both play in runs on this PC"
+    echo "  [2] GUEST - this PC joins the host's world"
+    while true; do
+        read -r -p "Enter 1 or 2: " answer
+        case "$answer" in
+            1) ROLE="host"; break ;;
+            2) ROLE="guest"; break ;;
+        esac
+    done
+fi
+
+if [[ "$NO_PROMPT" -eq 0 && "$ROLE" == "guest" && -z "$HOST_IP" && -t 0 ]]; then
+    echo
+    printf "\033[36mThe GUEST needs the HOST's IP address. How the host finds it, on THEIR pc:\033[0m\n"
+    echo "  - Same house / same Wi-Fi (host on Windows): press Win+R, type 'cmd',"
+    echo "    press Enter, then run:  ipconfig"
+    echo "    -> use the 'IPv4 Address' line (usually starts with 192.168.)"
+    echo "  - Different houses via Tailscale: open the Tailscale app / tray icon"
+    echo "    -> use the IP that starts with 100."
+    echo "  - Host on Linux: run  hostname -I  in a terminal (first address)"
+    echo "  (Leave empty to set it later - re-run this installer or edit config.lua.)"
+    read -r -p "Host IP address: " HOST_IP
+    HOST_IP="$(printf '%s' "$HOST_IP" | tr -d '[:space:]')"
+    if [[ -n "$HOST_IP" ]] && ! [[ "$HOST_IP" =~ ^[A-Za-z0-9.:-]+$ ]]; then
+        printf '\033[33m    That does not look like an IP; skipping. Re-run the installer to try again.\033[0m\n'
+        HOST_IP=""
+    fi
 fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -331,6 +385,18 @@ cp -r "$MOD_SOURCE/." "$MOD_TARGET/"
 [[ -n "$SAVED_CONFIG" ]] && cp "$SAVED_CONFIG" "$MOD_TARGET/Scripts/config.lua"
 ok "Mod files copied to $MOD_TARGET"
 
+# Apply the guest's host IP straight into the mod config so nobody has to
+# edit Lua by hand. (HOST_IP is pre-validated: letters/digits/.:-only.)
+MOD_CONFIG="$MOD_TARGET/Scripts/config.lua"
+if [[ -n "$HOST_IP" && -f "$MOD_CONFIG" ]]; then
+    if grep -qE '^Config\.HostAddress' "$MOD_CONFIG"; then
+        sed -i -E "s/^Config\.HostAddress[[:space:]]*=.*/Config.HostAddress = \"$HOST_IP\"/" "$MOD_CONFIG"
+    else
+        sed -i -E "s/^return Config/Config.HostAddress = \"$HOST_IP\"\n\nreturn Config/" "$MOD_CONFIG"
+    fi
+    ok "config.lua updated: pressing Join (F8) will connect to $HOST_IP"
+fi
+
 MODS_TXT="$MODS_DIR/mods.txt"
 if [[ -f "$MODS_TXT" ]] && ! grep -q "$MOD_NAME" "$MODS_TXT"; then
     printf '%s : 1\n' "$MOD_NAME" >> "$MODS_TXT"
@@ -391,14 +457,49 @@ echo "  Steam -> right-click Echoes of Aincrad -> Properties -> Launch Options:"
 echo
 printf '      WINEDLLOVERRIDES="%s=n,b" %%command%%\n' "$PROXY_DLL"
 echo
-echo "Then:"
-echo "  1. Launch the game. A UE4SS console window should appear and print"
-echo "     '[AincradTogether] ... loaded.'"
-echo "  2. HOST: load into the world, then press F7."
-echo "     (Hosting on Linux? Open UDP 7777 if you use a firewall, e.g."
-echo "      sudo ufw allow 7777/udp)"
-echo "  3. JOINER: put the host's IP in Scripts/config.lua (HostAddress),"
-echo "     start the game, then press F8."
+if [[ "$ROLE" == "host" ]]; then
+    printf '\033[36mThis PC is the HOST. Your play steps:\033[0m\n'
+    echo "  1. Launch the game; wait for the UE4SS console window to print"
+    echo "     '[AincradTogether] ... loaded.'"
+    echo "  2. Load into the world, then press F7. The map reloads once - normal."
+    echo "  3. Tell your partner you're ready; they press F8 on their PC."
+    echo
+    echo "Give your partner ONE of these addresses (the 100.x one if you use Tailscale):"
+    if command -v hostname >/dev/null && hostname -I >/dev/null 2>&1; then
+        for ip in $(hostname -I); do
+            case "$ip" in
+                100.*)              echo "      $ip (Tailscale - use this across the internet)" ;;
+                192.168.*|10.*)     echo "      $ip (LAN - same house/Wi-Fi)" ;;
+                *)                  echo "      $ip" ;;
+            esac
+        done
+    else
+        echo "      (couldn't list IPs - run 'ip addr' and look for 192.168.x.x / 100.x.y.z)"
+    fi
+    echo
+    echo "If you run a firewall, open the port:  sudo ufw allow 7777/udp"
+elif [[ "$ROLE" == "guest" ]]; then
+    printf '\033[36mThis PC is the GUEST. Your play steps:\033[0m\n'
+    echo "  1. Launch the game; wait for the UE4SS console window to print"
+    echo "     '[AincradTogether] ... loaded.'"
+    echo "  2. Load into the game world."
+    echo "  3. WAIT until the host says they've pressed F7, then press F8."
+    if [[ -n "$HOST_IP" ]]; then
+        echo "     You'll connect to: $HOST_IP (already saved in config.lua)"
+    else
+        echo "     No host IP saved yet - re-run this installer when you have it, or"
+        echo "     type it in-game in the console (F10):  coop_join <the-hosts-ip>"
+    fi
+else
+    echo "Then:"
+    echo "  1. Launch the game. A UE4SS console window should appear and print"
+    echo "     '[AincradTogether] ... loaded.'"
+    echo "  2. HOST: load into the world, then press F7."
+    echo "     (Hosting on Linux? Open UDP 7777 if you use a firewall, e.g."
+    echo "      sudo ufw allow 7777/udp)"
+    echo "  3. GUEST: put the host's IP in Scripts/config.lua (HostAddress),"
+    echo "     start the game, then press F8."
+fi
 echo
 echo "Playing over the internet? Read docs/CONNECTING.md (Tailscale is the easy way)."
 echo "Something not working? Launch the game once, then run: ./tools/diagnose.sh"
