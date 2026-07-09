@@ -88,6 +88,52 @@ fi
 WIN64_DIR="$(dirname "$SHIPPING_EXE")"
 pass "Shipping exe: $SHIPPING_EXE"
 
+# Engine version straight from the binary - the key fact when UE4SS's own
+# detection fails.
+if command -v python3 >/dev/null; then
+    ENGINE_VERSION="$(python3 - "$SHIPPING_EXE" <<'PYEOF' 2>/dev/null || true
+import re
+import sys
+
+path = sys.argv[1]
+CHUNK = 32 * 1024 * 1024
+OVERLAP = 128
+PATTERNS = [
+    re.compile(rb'\+\+UE5\+Release-(5\.[0-9]{1,2})'),
+    re.compile(rb'\+\x00\+\x00U\x00E\x005\x00\+\x00R\x00e\x00l\x00e\x00a\x00s\x00e\x00-\x00(5\x00\.\x00[0-9]\x00(?:[0-9]\x00)?)'),
+    re.compile(rb'(5\.[0-9]{1,2})\.[0-9]{1,2}-[0-9]{6,12}\+\+\+'),
+]
+
+found = set()
+with open(path, 'rb') as handle:
+    tail = b''
+    while True:
+        chunk = handle.read(CHUNK)
+        if not chunk:
+            break
+        data = tail + chunk
+        for pattern in PATTERNS:
+            for match in pattern.finditer(data):
+                found.add(match.group(1).replace(b'\x00', b'').decode('ascii', 'ignore'))
+        tail = data[-OVERLAP:]
+
+def minor(v):
+    try:
+        return int(v.split('.')[1])
+    except (IndexError, ValueError):
+        return -1
+
+candidates = sorted(found, key=minor)
+print(candidates[-1] if candidates else '')
+PYEOF
+)"
+    if [[ -n "${ENGINE_VERSION:-}" ]]; then
+        info "Game's Unreal Engine version (from exe): $ENGINE_VERSION"
+    else
+        info "Could not read a UE version string from the exe."
+    fi
+fi
+
 # ----------------------------------------------------------------------------
 # 2. UE4SS files on disk
 # ----------------------------------------------------------------------------
@@ -220,6 +266,21 @@ Lua tab or the in-game console (~ or F10 area keys) and running: coop_host
 If the UE4SS console window never appears but the log exists, the GUI can't
 draw under this Proton setup - the mod still works; check the log for its
 messages after pressing F7."
+    elif grep -qE 'PS scan timed out|\[PS\] Scan failed|Failed to find GUObjectArray|Failed to find EngineVersion' "$UE4SS_LOG"; then
+        fail "UE4SS runs, but its pattern scan cannot fingerprint this game's engine build."
+        note "(log shows 'Scan failed' / 'PS scan timed out' - UE4SS gives up before running any mods)"
+        VERDICT="This UE4SS build is older than the game's Unreal Engine version, so it cannot
+find the engine internals it needs (GUObjectArray/EngineVersion). Fix:
+
+    ./tools/install.sh --experimental
+
+That installs the UE4SS experimental build (signatures for the newest UE5
+versions) and writes the game's engine version - read out of the exe - into
+UE4SS-settings.ini as an override. Then launch again and re-run this script.
+If the experimental build still logs 'Failed to find GUObjectArray', the game
+needs a custom signature (UE4SS_Signatures/GUObjectArray.lua) - paste this
+output when asking for help and check the game's modding community, which
+usually publishes one within days of release."
     else
         fail "UE4SS runs, but the mod banner is NOT in the log."
         echo

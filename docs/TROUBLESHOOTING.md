@@ -46,6 +46,44 @@ game never uses in single-player; nobody has reported save corruption, but a
   engine-version mismatch — again, try the experimental build, and check the
   UE4SS GitHub issues for the game's UE5 minor version.
 
+## Console appears, but the log shows `[PS] Scan failed` / `Fatal Error: PS scan timed out`
+
+UE4SS injected fine, but its pattern scanner can't fingerprint this game's
+engine build — the stable UE4SS release is older than the game's UE5 version,
+so it can't find `GUObjectArray`/`EngineVersion` and gives up before running
+any mods. This is expected on brand-new games. Fix:
+
+```bash
+./tools/install.sh --experimental        # Linux
+```
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\install.ps1 -Experimental
+```
+
+This upgrades to the UE4SS **experimental** build (its signatures track the
+newest UE5 versions) and writes the game's engine version — read directly out
+of the exe — into `UE4SS-settings.ini` under `[EngineVersionOverride]`, so
+UE4SS no longer depends on detecting it by memory scan. Your mod settings and
+`config.lua` are preserved across the upgrade (including the move to the new
+`ue4ss/` folder layout).
+
+If the experimental build *still* logs `Failed to find GUObjectArray`, the
+game needs a hand-made signature file (`UE4SS_Signatures/GUObjectArray.lua`).
+Check the game's Nexus Mods page / UE4SS Discord — for a popular release,
+someone usually publishes one within days — and open an issue here with your
+log so we can bundle it.
+
+## A popup says "Unable to load library steamclient64.dll" (Linux/Proton)
+
+Seen occasionally when UE4SS is loaded under Proton. It's about Steam's own
+client library, not UE4SS or the mod, and if the game still starts you can
+dismiss and ignore it. If the game does *not* start:
+
+- Make sure you launch through the Steam client (Denuvo requires it), not by
+  running the exe directly.
+- Try a different Proton version: game Properties → Compatibility → e.g.
+  Proton Experimental or the latest numbered Proton.
+
 ## Console appears, but no `[AincradTogether] ... loaded.` line
 
 - The mod folder must be at `Mods\AincradTogether\Scripts\main.lua` (watch for
