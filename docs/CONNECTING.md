@@ -5,14 +5,17 @@ need is an IP address the joiner can reach.
 
 ## Option A — same house / same Wi-Fi (easiest)
 
-1. On the **host** PC: press `Win+R`, run `cmd`, type `ipconfig`, and read the
-   `IPv4 Address` (usually `192.168.x.x`).
+1. On the **host** PC, find its LAN IP (usually `192.168.x.x`):
+   - Windows: press `Win+R`, run `cmd`, type `ipconfig`, read `IPv4 Address`.
+   - Linux: run `hostname -I` in a terminal (first address).
 2. On the **joiner** PC: put that address in
    `Mods\AincradTogether\Scripts\config.lua` → `Config.HostAddress`.
-3. The first time you host, Windows may show a firewall popup for the game —
-   click **Allow**. If there's no popup and joining times out, add an inbound
-   rule manually: Windows Security → Firewall → Advanced settings → Inbound
-   Rules → New Rule → Port → **UDP 7777** → Allow.
+3. Firewall on the host:
+   - Windows: the first time you host, a firewall popup may appear — click
+     **Allow**. If there's no popup and joining times out, add an inbound rule
+     manually: Windows Security → Firewall → Advanced settings → Inbound
+     Rules → New Rule → Port → **UDP 7777** → Allow.
+   - Linux: only if you run a firewall — `sudo ufw allow 7777/udp`.
 
 ## Option B — different houses, no router fiddling (recommended)
 

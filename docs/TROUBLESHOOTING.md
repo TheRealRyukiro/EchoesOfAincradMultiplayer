@@ -14,10 +14,19 @@ game never uses in single-player; nobody has reported save corruption, but a
 
 ## The UE4SS console window never appears
 
+- **Linux/Proton**: the #1 cause is a missing launch option. Steam →
+  Properties → Launch Options must contain
+  `WINEDLLOVERRIDES="dwmapi=n,b" %command%` (use `xinput1_3` instead of
+  `dwmapi` if that's the proxy DLL your UE4SS version shipped). Without it,
+  Wine loads its own built-in DLL and UE4SS never starts.
 - UE4SS must sit next to `*-Win64-Shipping.exe` (in `...\Binaries\Win64\`),
   **not** next to the small launcher exe at the top of the install folder.
 - Check `UE4SS-settings.ini`: `GuiConsoleEnabled = 1` and
   `GuiConsoleVisible = 1`.
+- **Linux/Proton**: if the game runs but the console window crashes or never
+  draws, set `GraphicsAPI = opengl` in `UE4SS-settings.ini` (the install
+  script does this for you; the DX11 debug window is flaky under Wine). Even
+  with no window, check `UE4SS.log` — the mod may be loading fine anyway.
 - Very new game builds sometimes outpace the stable UE4SS release. Grab the
   latest **experimental** build from the
   [UE4SS releases page](https://github.com/UE4SS-RE/RE-UE4SS/releases) and
@@ -50,8 +59,9 @@ Network problem, not a mod problem:
 - Host must already be hosting (F7) *before* the joiner presses F8.
 - Wrong IP is the #1 cause — re-read [CONNECTING.md](CONNECTING.md). On
   Tailscale, use the `100.x.y.z` address, not the LAN one.
-- Firewall: allow the game (the *Shipping* exe) through Windows Firewall on
-  the host, or open inbound **UDP 7777**.
+- Firewall on the host: on Windows, allow the game (the *Shipping* exe)
+  through Windows Firewall or open inbound **UDP 7777**; on Linux,
+  `sudo ufw allow 7777/udp` if you run a firewall.
 - Both PCs must run the **same game version** (and demo↔demo or full↔full,
   never mixed). Steam updates one PC before the other surprisingly often.
 
