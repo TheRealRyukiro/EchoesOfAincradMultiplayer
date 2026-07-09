@@ -2,25 +2,40 @@
 # ============================================================================
 # AincradTogether doctor for Linux (Steam + Proton)
 #
-# Read-only: checks every link in the chain that gets the mod from disk into
-# the running game, and prints a PASS/FAIL report with a verdict at the end.
+# Checks every link in the chain that gets the mod from disk into the
+# running game, and prints a PASS/FAIL report with a verdict at the end.
 # Run it after launching the game at least once, and paste the whole output
 # when asking for help.
 #
 #   ./tools/diagnose.sh
 #   ./tools/diagnose.sh --game-path "<game folder>"
+#
+# Read-only by default. The one exception is an explicit repair flag that
+# writes the engine version into UE4SS-settings.ini ([EngineVersionOverride])
+# on an EXISTING install, without reinstalling anything:
+#
+#   ./tools/diagnose.sh --set-engine-version auto   # version read from the exe
+#   ./tools/diagnose.sh --set-engine-version 5.6    # version you provide
 # ============================================================================
 
 set -uo pipefail   # no -e on purpose: keep going and report everything
 
 GAME_PATH=""
+SET_ENGINE_VERSION=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --game-path) GAME_PATH="$2"; shift 2 ;;
+        --set-engine-version) SET_ENGINE_VERSION="$2"; shift 2 ;;
         -h|--help) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown option: $1 (try --help)"; exit 1 ;;
     esac
 done
+
+if [[ -n "$SET_ENGINE_VERSION" && "$SET_ENGINE_VERSION" != "auto" ]] \
+        && ! [[ "$SET_ENGINE_VERSION" =~ ^5\.[0-9]+$ ]]; then
+    echo "ERROR: --set-engine-version takes 'auto' or a version like '5.6' (major.minor, no patch digit)"
+    exit 1
+fi
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -160,13 +175,48 @@ fi
 
 SETTINGS_INI="$UE4SS_DIR/UE4SS-settings.ini"
 if [[ -f "$SETTINGS_INI" ]]; then
-    pass "UE4SS-settings.ini present"
+    pass "Settings file: $SETTINGS_INI"
     for key in ConsoleEnabled GuiConsoleEnabled GuiConsoleVisible GraphicsAPI; do
         line="$(grep -E "^${key}[[:space:]]*=" "$SETTINGS_INI" | head -n 1 | tr -d '\r')"
         info "  settings: ${line:-$key not found in ini}"
     done
+
+    # Current engine override - the thing UE4SS falls back on when it cannot
+    # detect the engine version itself.
+    MAJOR_LINE="$(grep -E '^MajorVersion[[:space:]]*=' "$SETTINGS_INI" | head -n 1 | tr -d '\r')"
+    MINOR_LINE="$(grep -E '^MinorVersion[[:space:]]*=' "$SETTINGS_INI" | head -n 1 | tr -d '\r')"
+    if [[ -n "$MAJOR_LINE" || -n "$MINOR_LINE" ]]; then
+        info "  [EngineVersionOverride]: ${MAJOR_LINE:-MajorVersion unset} | ${MINOR_LINE:-MinorVersion unset}"
+    else
+        info "  [EngineVersionOverride]: section not present"
+    fi
+
+    # Explicit repair mode: write the override in place.
+    if [[ -n "$SET_ENGINE_VERSION" ]]; then
+        TARGET_VERSION="$SET_ENGINE_VERSION"
+        if [[ "$TARGET_VERSION" == "auto" ]]; then
+            TARGET_VERSION="${ENGINE_VERSION:-}"
+            if [[ -z "$TARGET_VERSION" ]]; then
+                fail "--set-engine-version auto: could not read a version from the exe."
+                note "Pass it explicitly instead, e.g.: --set-engine-version 5.6"
+                exit 1
+            fi
+        fi
+        MINOR="${TARGET_VERSION#5.}"
+        if grep -qE '^MajorVersion' "$SETTINGS_INI"; then
+            sed -i -E 's/^MajorVersion[[:space:]]*=.*/MajorVersion = 5/' "$SETTINGS_INI"
+            sed -i -E "s/^MinorVersion[[:space:]]*=.*/MinorVersion = $MINOR/" "$SETTINGS_INI"
+        else
+            printf '\n[EngineVersionOverride]\nMajorVersion = 5\nMinorVersion = %s\n' "$MINOR" >> "$SETTINGS_INI"
+        fi
+        pass "WROTE engine override: UE 5.$MINOR -> $SETTINGS_INI"
+        note "Launch the game again; UE4SS will use this instead of scanning for the version."
+    fi
 else
     fail "UE4SS-settings.ini not found in $UE4SS_DIR"
+    if [[ -n "$SET_ENGINE_VERSION" ]]; then
+        note "--set-engine-version needs an existing UE4SS install; run tools/install.sh first."
+    fi
 fi
 
 # ----------------------------------------------------------------------------
@@ -277,6 +327,11 @@ find the engine internals it needs (GUObjectArray/EngineVersion). Fix:
 That installs the UE4SS experimental build (signatures for the newest UE5
 versions) and writes the game's engine version - read out of the exe - into
 UE4SS-settings.ini as an override. Then launch again and re-run this script.
+
+To ONLY write the version override into the current install (no reinstall):
+
+    ./tools/diagnose.sh --set-engine-version auto
+
 If the experimental build still logs 'Failed to find GUObjectArray', the game
 needs a custom signature (UE4SS_Signatures/GUObjectArray.lua) - paste this
 output when asking for help and check the game's modding community, which

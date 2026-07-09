@@ -14,10 +14,14 @@
 #   ./tools/install.sh --game-path <folder>   # point at the game manually
 #   ./tools/install.sh --zip <UE4SS_vX.zip>   # use a pre-downloaded UE4SS
 #   ./tools/install.sh --skip-ue4ss           # only (re)install the mod
+#   ./tools/install.sh --engine-version 5.6   # force the UE version instead
+#                                             # of reading it from the exe
 #
 # The script also reads the game's Unreal Engine version out of the exe and
 # writes it into UE4SS-settings.ini ([EngineVersionOverride]) so UE4SS does
-# not depend on detecting it by memory scan.
+# not depend on detecting it by memory scan. To write the override into an
+# EXISTING install without reinstalling, use:
+#   ./tools/diagnose.sh --set-engine-version auto
 #
 # After installing you MUST set the game's Steam launch options (the script
 # prints the exact line) so Proton loads UE4SS.
@@ -30,6 +34,7 @@ GAME_PATH=""
 UE4SS_ZIP=""
 SKIP_UE4SS=0
 EXPERIMENTAL=0
+FORCED_ENGINE_VERSION=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -37,10 +42,16 @@ while [[ $# -gt 0 ]]; do
         --zip)       UE4SS_ZIP="$2"; shift 2 ;;
         --skip-ue4ss) SKIP_UE4SS=1; shift ;;
         --experimental) EXPERIMENTAL=1; shift ;;
+        --engine-version) FORCED_ENGINE_VERSION="$2"; shift 2 ;;
         -h|--help)   grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown option: $1 (try --help)"; exit 1 ;;
     esac
 done
+
+if [[ -n "$FORCED_ENGINE_VERSION" ]] && ! [[ "$FORCED_ENGINE_VERSION" =~ ^5\.[0-9]+$ ]]; then
+    printf 'ERROR: --engine-version must look like "5.6" (major.minor, no patch digit)\n' >&2
+    exit 1
+fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MOD_SOURCE="$REPO_ROOT/Mods/AincradTogether"
@@ -111,7 +122,10 @@ ok "Install target:  $WIN64_DIR"
 #    (the version string is embedded in the binary; we scan for it in chunks)
 # ----------------------------------------------------------------------------
 ENGINE_VERSION=""
-if command -v python3 >/dev/null; then
+if [[ -n "$FORCED_ENGINE_VERSION" ]]; then
+    ENGINE_VERSION="$FORCED_ENGINE_VERSION"
+    step "Using engine version from --engine-version: UE $ENGINE_VERSION"
+elif command -v python3 >/dev/null; then
     step "Reading the game's Unreal Engine version from the exe..."
     ENGINE_VERSION="$(python3 - "$SHIPPING_EXE" <<'PYEOF' || true
 import re
@@ -157,10 +171,12 @@ PYEOF
         ok "Detected Unreal Engine $ENGINE_VERSION"
     else
         warn "Could not find a UE version string in the exe (this can happen with DRM)."
-        warn "UE4SS may need a manual [EngineVersionOverride] in UE4SS-settings.ini."
+        warn "Re-run with an explicit version once you know it, e.g.: --engine-version 5.6"
+        warn "(Find it on the game's PCGamingWiki/SteamDB page, or ask in the modding community.)"
     fi
 else
     warn "python3 not found - skipping engine version detection."
+    warn "You can pass the version yourself instead: --engine-version 5.6"
 fi
 
 # ----------------------------------------------------------------------------
