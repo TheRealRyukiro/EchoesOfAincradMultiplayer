@@ -23,8 +23,15 @@ param(
     # Use the UE4SS experimental (pre-release) build. Needed while the game's
     # UE5 version is newer than what the stable UE4SS release supports
     # (symptom: UE4SS.log full of "[PS] Scan failed" / "PS scan timed out").
-    [switch]$Experimental
+    [switch]$Experimental,
+    # Force the game's Unreal Engine version (e.g. "5.6") instead of reading
+    # it from the exe. Written to UE4SS-settings.ini [EngineVersionOverride].
+    [string]$EngineVersion
 )
+
+if ($EngineVersion -and $EngineVersion -notmatch '^5\.\d+$') {
+    throw "-EngineVersion must look like '5.6' (major.minor, no patch digit)"
+}
 
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
@@ -134,14 +141,17 @@ function Get-EngineVersion($exePath) {
     return ($found.Keys | Sort-Object { [double]$_ } | Select-Object -Last 1)
 }
 
-Write-Step "Reading the game's Unreal Engine version from the exe..."
-$engineVersion = $null
-try { $engineVersion = Get-EngineVersion $shippingExe.FullName } catch { }
-if ($engineVersion) {
-    Write-Ok "Detected Unreal Engine $engineVersion"
+if ($EngineVersion) {
+    Write-Step "Using engine version from -EngineVersion: UE $EngineVersion"
 } else {
-    Write-Warn2 "Could not find a UE version string in the exe (can happen with DRM)."
-    Write-Warn2 "UE4SS may need a manual [EngineVersionOverride] in UE4SS-settings.ini."
+    Write-Step "Reading the game's Unreal Engine version from the exe..."
+    try { $EngineVersion = Get-EngineVersion $shippingExe.FullName } catch { }
+    if ($EngineVersion) {
+        Write-Ok "Detected Unreal Engine $EngineVersion"
+    } else {
+        Write-Warn2 "Could not find a UE version string in the exe (can happen with DRM)."
+        Write-Warn2 "Re-run with an explicit version once you know it, e.g.: -EngineVersion 5.6"
+    }
 }
 
 # ----------------------------------------------------------------------------
@@ -260,8 +270,8 @@ if (Test-Path $settingsIni) {
     $ini = $ini -replace '(?m)^ConsoleEnabled\s*=.*$', 'ConsoleEnabled = 1'
     $ini = $ini -replace '(?m)^GuiConsoleEnabled\s*=.*$', 'GuiConsoleEnabled = 1'
     $ini = $ini -replace '(?m)^GuiConsoleVisible\s*=.*$', 'GuiConsoleVisible = 1'
-    if ($engineVersion) {
-        $minor = $engineVersion.Split('.')[1]
+    if ($EngineVersion) {
+        $minor = $EngineVersion.Split('.')[1]
         if ($ini -match '(?m)^MajorVersion\s*=') {
             $ini = $ini -replace '(?m)^MajorVersion\s*=.*$', 'MajorVersion = 5'
             $ini = $ini -replace '(?m)^MinorVersion\s*=.*$', "MinorVersion = $minor"

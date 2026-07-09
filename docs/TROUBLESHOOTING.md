@@ -73,6 +73,53 @@ Check the game's Nexus Mods page / UE4SS Discord — for a popular release,
 someone usually publishes one within days — and open an issue here with your
 log so we can bundle it.
 
+## Where is `UE4SS-settings.ini`, and what goes in `[EngineVersionOverride]`?
+
+**Where:** next to the UE4SS loader itself, which depends on the UE4SS layout:
+
+- stable v3.0.x (flat layout):
+  `<game>\EchoesofAincrad\Binaries\Win64\UE4SS-settings.ini`
+- experimental builds (subfolder layout):
+  `<game>\EchoesofAincrad\Binaries\Win64\ue4ss\UE4SS-settings.ini`
+
+You never have to hunt for it: `./tools/diagnose.sh` prints the exact path on
+your machine (the `Settings file:` line) along with the current override
+values.
+
+**What goes in it:** the override tells UE4SS which Unreal Engine version the
+game uses when its own detection fails. It's two whole numbers — major and
+minor, **no patch digit** (an engine version of "5.6.1" still means `6`):
+
+```ini
+[EngineVersionOverride]
+MajorVersion = 5
+MinorVersion = 6
+```
+
+If the section doesn't exist, add it anywhere in the file (stable 3.0.x ships
+it with blank values — fill them in).
+
+**You normally never edit this by hand.** All three tools write it for you:
+
+| Command | What it does |
+| --- | --- |
+| `./tools/install.sh` / `install.ps1` | reads the version out of the game exe, writes the override during install |
+| `./tools/install.sh --engine-version 5.6` (Windows: `-EngineVersion 5.6`) | forces a version you provide, for when the exe can't be read |
+| `./tools/diagnose.sh --set-engine-version auto` (or an explicit `5.6`) | writes the override into an **existing** install — no reinstall, no download |
+
+## Isn't there an injector that already supports the newest UE5?
+
+UE4SS *is* the standard scripting injector for UE4/UE5 — there's no
+alternative to switch to, and the experimental build is precisely its
+"newest UE5" edition. The underlying reason no tool can "just work" forever:
+a shipping game has no source code or debug symbols, so anything that scripts
+the engine must locate internals by scanning for byte patterns, and Epic
+rearranges those internals every engine release. New engine version →
+fingerprints lag for a while → hence the experimental builds and the
+`[EngineVersionOverride]` escape hatch. (Other UE "mod loaders" you may find
+only load pak/asset mods — no scripting — so they can't power a mod like
+this one.)
+
 ## A popup says "Unable to load library steamclient64.dll" (Linux/Proton)
 
 Seen occasionally when UE4SS is loaded under Proton. It's about Steam's own
