@@ -197,3 +197,4 @@ echo "  3. JOINER: put the host's IP in Scripts/config.lua (HostAddress),"
 echo "     start the game, then press F8."
 echo
 echo "Playing over the internet? Read docs/CONNECTING.md (Tailscale is the easy way)."
+echo "Something not working? Launch the game once, then run: ./tools/diagnose.sh"

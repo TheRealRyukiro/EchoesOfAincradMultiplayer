@@ -1,8 +1,19 @@
 # Troubleshooting
 
-Work top to bottom — each section assumes the previous ones pass. When you're
-stuck, the two artifacts that diagnose almost everything are the output of
-`coop_status` (F9) and the file `UE4SS.log` (next to `UE4SS-settings.ini`).
+**On Linux, start here:** launch the game once, quit, then run
+
+```bash
+./tools/diagnose.sh
+```
+
+It checks the whole chain (UE4SS files → launch options → `UE4SS.log` → mod
+banner) and prints a verdict telling you which link is broken. Paste its full
+output when asking for help.
+
+Otherwise work top to bottom — each section assumes the previous ones pass.
+When you're stuck, the two artifacts that diagnose almost everything are the
+output of `coop_status` (F9) and the file `UE4SS.log` (next to
+`UE4SS-settings.ini`).
 
 ## Back up your saves
 
