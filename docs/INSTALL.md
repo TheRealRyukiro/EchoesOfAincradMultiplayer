@@ -24,7 +24,17 @@ cd <where-you-unzipped-this-repo>
 powershell -ExecutionPolicy Bypass -File tools\install.ps1
 ```
 
-The script:
+The installer is a guided setup: it asks whether this PC is the **HOST**
+(the world runs on it) or the **GUEST** (joins the host). Guests are asked
+for the host's IP — with instructions for how the host finds it — and the
+answer is saved into the mod's config automatically, so there's nothing to
+edit by hand. A Windows host is shown its own IP addresses to share and
+offered a firewall rule for UDP 7777. Skip the questions with
+`-Role Host`/`-Role Guest -HostIP <ip>` or `-NoPrompt`.
+(The Linux installer asks the same questions; flags: `--role`, `--host-ip`,
+`--no-prompt`.)
+
+The script also:
 
 1. finds your Steam install of the game (pass
    `-GamePath "D:\...\Echoes of Aincrad"` if it can't),

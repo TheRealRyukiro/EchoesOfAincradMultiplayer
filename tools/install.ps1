@@ -27,15 +27,60 @@ param(
     # Force the game's Unreal Engine version (e.g. "5.3") instead of reading
     # it from the exe. Written to UE4SS-settings.ini [EngineVersionOverride].
     # Echoes of Aincrad is UE 5.3 (per UE4SS-RE/RE-UE4SS issue #1283).
-    [string]$EngineVersion
+    [string]$EngineVersion,
+    # This PC's role in co-op: 'Host' (the world runs here) or 'Guest'
+    # (joins the host). If omitted, the script asks interactively.
+    [string]$Role,
+    # For guests: the host's IP address (LAN 192.168.x.x or Tailscale
+    # 100.x.y.z). Written into the mod's config.lua. If omitted and the role
+    # is Guest, the script asks interactively.
+    [string]$HostIP,
+    # Skip all interactive questions (for unattended runs).
+    [switch]$NoPrompt
 )
 
 if ($EngineVersion -and $EngineVersion -notmatch '^5\.\d+$') {
     throw "-EngineVersion must look like '5.3' (major.minor, no patch digit)"
 }
 
+if ($Role -and $Role -notmatch '^(?i)(host|guest)$') {
+    throw "-Role must be 'Host' or 'Guest'"
+}
+if ($HostIP -and $HostIP -notmatch '^[A-Za-z0-9\.\:\-]+$') {
+    throw "-HostIP doesn't look like an IP address or hostname: $HostIP"
+}
+
 # Known version for Echoes of Aincrad, used when nothing better is available.
 $KnownGameEngineVersion = '5.3'
+
+# ----------------------------------------------------------------------------
+# 0. Setup questions (asked up front so the rest runs unattended)
+# ----------------------------------------------------------------------------
+if (-not $NoPrompt -and -not $Role) {
+    Write-Host ""
+    Write-Host "Who is this PC in your co-op session?" -ForegroundColor Cyan
+    Write-Host "  [1] HOST  - the world you'll both play in runs on this PC"
+    Write-Host "  [2] GUEST - this PC joins the host's world"
+    do { $answer = Read-Host "Enter 1 or 2" } until ($answer -match '^[12]$')
+    $Role = if ($answer -eq '1') { 'Host' } else { 'Guest' }
+}
+
+if (-not $NoPrompt -and $Role -match '^(?i)guest$' -and -not $HostIP) {
+    Write-Host ""
+    Write-Host "The GUEST needs the HOST's IP address. How the host finds it, on THEIR pc:" -ForegroundColor Cyan
+    Write-Host "  - Same house / same Wi-Fi (host on Windows): press Win+R, type 'cmd',"
+    Write-Host "    press Enter, then run:  ipconfig"
+    Write-Host "    -> use the 'IPv4 Address' line (usually starts with 192.168.)"
+    Write-Host "  - Different houses via Tailscale: open the Tailscale app / tray icon"
+    Write-Host "    -> use the IP that starts with 100."
+    Write-Host "  - Host on Linux: run  hostname -I  in a terminal (first address)"
+    Write-Host "  (Leave empty to set it later - re-run this installer or edit config.lua.)"
+    $HostIP = (Read-Host "Host IP address").Trim()
+    if ($HostIP -and $HostIP -notmatch '^[A-Za-z0-9\.\:\-]+$') {
+        Write-Host "    That doesn't look like an IP; skipping. Re-run the installer to try again." -ForegroundColor Yellow
+        $HostIP = $null
+    }
+}
 
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
@@ -287,6 +332,22 @@ Copy-Item -Path $ModSource -Destination $modsDir -Recurse -Force
 if ($savedConfig) { Set-Content -Path $existingConfig -Value $savedConfig -NoNewline }
 Write-Ok "Mod files copied to $modTarget"
 
+# Apply the guest's host IP straight into the mod config so nobody has to
+# edit Lua by hand.
+if ($HostIP) {
+    $configPath = Join-Path $modTarget 'Scripts\config.lua'
+    if (Test-Path $configPath) {
+        $cfg = Get-Content $configPath -Raw
+        if ($cfg -match '(?m)^Config\.HostAddress') {
+            $cfg = $cfg -replace '(?m)^Config\.HostAddress\s*=\s*"[^"]*"', "Config.HostAddress = `"$HostIP`""
+        } else {
+            $cfg = $cfg -replace '(?m)^return Config', "Config.HostAddress = `"$HostIP`"`r`n`r`nreturn Config"
+        }
+        Set-Content -Path $configPath -Value $cfg -NoNewline
+        Write-Ok "config.lua updated: pressing Join (F8) will connect to $HostIP"
+    }
+}
+
 # Register in mods.txt as well (enabled.txt inside the mod folder also works,
 # but having both makes it visible/toggleable alongside the built-in mods).
 $modsTxt = Join-Path $modsDir 'mods.txt'
@@ -336,14 +397,74 @@ if ((Test-Path $sigSource) -and (Get-ChildItem -Path $sigSource -Filter '*.lua' 
 # ----------------------------------------------------------------------------
 # Done
 # ----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# Role-specific finish
+# ----------------------------------------------------------------------------
 Write-Host ""
 Write-Host "Install complete!" -ForegroundColor Green
 Write-Host ""
-Write-Host "Next steps:"
-Write-Host "  1. Launch the game through Steam. A UE4SS console window should appear"
-Write-Host "     alongside the game and print '[AincradTogether] ... loaded.'"
-Write-Host "  2. HOST: load into the world, then press F7."
-Write-Host "  3. JOINER: put the host's IP in Scripts\config.lua (HostAddress),"
-Write-Host "     start the game, then press F8."
+
+if ($Role -match '^(?i)host$') {
+    Write-Host "This PC is the HOST. Your play steps:" -ForegroundColor Cyan
+    Write-Host "  1. Launch the game through Steam; wait for the UE4SS console window"
+    Write-Host "     to print '[AincradTogether] ... loaded.'"
+    Write-Host "  2. Load into the world, then press F7. The map reloads once - normal."
+    Write-Host "  3. Tell your partner you're ready; they press F8 on their PC."
+    Write-Host ""
+    Write-Host "Give your partner ONE of these addresses (the 100.x one if you use Tailscale):"
+    $ips = @()
+    try {
+        $ips = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
+            Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
+            ForEach-Object { $_.IPAddress }
+    } catch { }
+    if ($ips) {
+        foreach ($ip in $ips) {
+            $kind = if ($ip -like '100.*') { ' (Tailscale - use this across the internet)' }
+                    elseif ($ip -like '192.168.*' -or $ip -like '10.*') { ' (LAN - same house/Wi-Fi)' }
+                    else { '' }
+            Write-Host "      $ip$kind"
+        }
+    } else {
+        Write-Host "      (couldn't list IPs - run 'ipconfig' and read the IPv4 Address line)"
+    }
+    Write-Host ""
+    $existingRule = $null
+    try { $existingRule = Get-NetFirewallRule -DisplayName 'AincradTogether UDP 7777' -ErrorAction SilentlyContinue } catch { }
+    if ($existingRule) {
+        Write-Ok "Windows Firewall already allows UDP 7777."
+    } elseif (-not $NoPrompt) {
+        $fw = Read-Host "Open UDP 7777 in Windows Firewall so your partner can connect? (y/N)"
+        if ($fw -match '^(?i)y') {
+            try {
+                New-NetFirewallRule -DisplayName 'AincradTogether UDP 7777' -Direction Inbound `
+                    -Protocol UDP -LocalPort 7777 -Action Allow -Profile Any | Out-Null
+                Write-Ok "Firewall rule added."
+            } catch {
+                Write-Warn2 "Couldn't add the rule (needs an Administrator PowerShell). Alternative:"
+                Write-Warn2 "just click 'Allow' when Windows asks the first time you host."
+            }
+        }
+    }
+} elseif ($Role -match '^(?i)guest$') {
+    Write-Host "This PC is the GUEST. Your play steps:" -ForegroundColor Cyan
+    Write-Host "  1. Launch the game through Steam; wait for the UE4SS console window"
+    Write-Host "     to print '[AincradTogether] ... loaded.'"
+    Write-Host "  2. Load into the game world."
+    Write-Host "  3. WAIT until the host says they've pressed F7, then press F8."
+    if ($HostIP) {
+        Write-Host "     You'll connect to: $HostIP (already saved in config.lua)"
+    } else {
+        Write-Host "     No host IP saved yet - re-run this installer when you have it, or"
+        Write-Host "     type it in-game in the console (F10):  coop_join <the-hosts-ip>"
+    }
+} else {
+    Write-Host "Next steps:"
+    Write-Host "  1. Launch the game through Steam. A UE4SS console window should appear"
+    Write-Host "     alongside the game and print '[AincradTogether] ... loaded.'"
+    Write-Host "  2. HOST: load into the world, then press F7."
+    Write-Host "  3. GUEST: put the host's IP in Scripts\config.lua (HostAddress),"
+    Write-Host "     start the game, then press F8."
+}
 Write-Host ""
 Write-Host "Playing over the internet? Read docs/CONNECTING.md (Tailscale is the easy way)."
