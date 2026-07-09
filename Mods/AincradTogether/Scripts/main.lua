@@ -27,7 +27,7 @@
 local Config = require("config")
 
 local MOD_NAME = "AincradTogether"
-local MOD_VERSION = "0.1.1"
+local MOD_VERSION = "0.1.2"
 
 -- ----------------------------------------------------------------------------
 -- State
@@ -43,14 +43,27 @@ local State = {
     HudEnabled = true,         -- runtime toggle (F10), independent of config
     LastMapPath = nil,         -- for the map-change watcher
     UnpauseLogged = false,     -- log the first auto-unpause per session only
+    PendingJoinChecks = {},    -- new controllers awaiting local/remote verdict
+}
+
+-- Object scans (FindAllOf) walk the whole engine object array - expensive in
+-- a big open world. The 1s master tick refreshes this cache once; every
+-- other loop reads it instead of scanning on its own.
+local Cache = {
+    LocalPC = nil,     -- last known local PlayerController
+    Remotes = {},      -- remote (network) PlayerControllers
+    PlayerStates = {}, -- all PlayerStates (only refreshed while in a session)
 }
 
 local Hud = {
     Widget = nil,     -- UUserWidget holding our text
     TextBlock = nil,  -- UTextBlock we write into
-    Broken = false,   -- hard construction failure: stop trying, use console
+    Broken = false,   -- construction keeps failing: use console until next map
+    Attempts = 0,     -- construction attempts on the current map
     LastConsoleLine = nil, -- avoid spamming identical fallback lines
+    LastConsoleTime = 0,   -- rate limit for the console fallback
 }
+local HUD_MAX_ATTEMPTS_PER_MAP = 3
 
 -- ----------------------------------------------------------------------------
 -- Logging
@@ -102,31 +115,45 @@ local function IsLocalController(PlayerController)
     return Ok and Result
 end
 
-local function GetLocalPlayerController()
+-- One full controller scan; refreshes the shared cache. Called once per
+-- master tick and on demand when the cache looks dead.
+local function RefreshControllerCache()
+    Cache.LocalPC = nil
+    Cache.Remotes = {}
     local Controllers = FindAllOf("PlayerController")
-    if not Controllers then return nil end
+    if not Controllers then return end
+    local AnyValid = nil
     for _, PC in ipairs(Controllers) do
-        if PC:IsValid() and IsLocalController(PC) then
-            return PC
+        if PC:IsValid() then
+            AnyValid = AnyValid or PC
+            if IsLocalController(PC) then
+                Cache.LocalPC = Cache.LocalPC or PC
+            else
+                table.insert(Cache.Remotes, PC)
+            end
         end
     end
     -- Fall back to any valid controller so console commands still have a
     -- world context during odd transition states.
-    for _, PC in ipairs(Controllers) do
-        if PC:IsValid() then return PC end
+    Cache.LocalPC = Cache.LocalPC or AnyValid
+end
+
+local function GetLocalPlayerController()
+    if Cache.LocalPC and Cache.LocalPC:IsValid() then
+        return Cache.LocalPC
     end
-    return nil
+    RefreshControllerCache()
+    return Cache.LocalPC
 end
 
 local function GetRemoteControllers()
-    local Remotes = {}
-    local Controllers = FindAllOf("PlayerController") or {}
-    for _, PC in ipairs(Controllers) do
-        if PC:IsValid() and not IsLocalController(PC) then
-            table.insert(Remotes, PC)
-        end
+    -- Served from the cache (refreshed every master tick); prune anything
+    -- that died since. Cheap enough for the 300ms pause guard.
+    local Alive = {}
+    for _, PC in ipairs(Cache.Remotes) do
+        if PC:IsValid() then table.insert(Alive, PC) end
     end
-    return Remotes
+    return Alive
 end
 
 local function ControllerHasPawn(PlayerController)
@@ -184,8 +211,9 @@ local function GetPlayerStateName(PlayerState)
 end
 
 -- Returns a list of { Name = string, PingMs = number|nil, IsLocal = bool }
--- for every player in the session, on host and client alike.
-local function GetPlayerPingReport()
+-- for every player in the session, on host and client alike. Reads the
+-- cached PlayerState list unless FreshScan is set (manual commands).
+local function GetPlayerPingReport(FreshScan)
     local Report = {}
     local LocalPC = GetLocalPlayerController()
     local LocalPSName = nil
@@ -196,7 +224,10 @@ local function GetPlayerPingReport()
         end)
     end
 
-    local PlayerStates = FindAllOf("PlayerState") or {}
+    local PlayerStates = Cache.PlayerStates
+    if FreshScan or #PlayerStates == 0 then
+        PlayerStates = FindAllOf("PlayerState") or {}
+    end
     for _, PS in ipairs(PlayerStates) do
         if PS:IsValid() then
             local IsLocal = false
@@ -291,6 +322,8 @@ local function TryCreateHud()
     local PC = GetLocalPlayerController()
     if not PC then return false end -- not an error; try again later
 
+    Hud.Attempts = Hud.Attempts + 1
+
     local Ok, Err = pcall(function()
         local WBL = GetWidgetBlueprintLibrary()
         assert(WBL, "WidgetBlueprintLibrary not found")
@@ -318,9 +351,13 @@ local function TryCreateHud()
     end)
 
     if not Ok then
-        Hud.Broken = true
-        Log("On-screen HUD unavailable on this game/engine version (" .. tostring(Err) .. ").")
-        Log("Falling back to console output. Everything else works normally.")
+        Log("On-screen HUD attempt " .. Hud.Attempts .. " failed (" .. tostring(Err) .. ").")
+        if Hud.Attempts >= HUD_MAX_ATTEMPTS_PER_MAP then
+            -- Give up on this map; a map change resets the counter and we
+            -- try again (some maps/loading states can't host widgets).
+            Hud.Broken = true
+            Log("Falling back to console output until the next map change. Everything else works normally.")
+        end
         return false
     end
     Verbose("On-screen HUD created.")
@@ -478,7 +515,11 @@ local function FixMissingPawns(ManualTrigger)
     local LocalPC = GetLocalPlayerController()
     local HostPawn = LocalPC and GetControllerPawn(LocalPC) or nil
 
-    local Controllers = FindAllOf("PlayerController") or {}
+    -- Reads the cached controller list (refreshed every second) rather than
+    -- rescanning the whole object array on each fixer pass.
+    local Controllers = {}
+    if Cache.LocalPC and Cache.LocalPC:IsValid() then table.insert(Controllers, Cache.LocalPC) end
+    for _, PC in ipairs(Cache.Remotes) do table.insert(Controllers, PC) end
     for _, PC in ipairs(Controllers) do
         if PC:IsValid() and not ControllerHasPawn(PC) then
             local IsRemote = not IsLocalController(PC)
@@ -630,6 +671,14 @@ local function HostSession()
 end
 
 local function JoinSession(Address)
+    -- The #1 solo-testing accident: pressing Join on the machine that is
+    -- already hosting connects the game to itself and tears the session
+    -- down. One game instance cannot be host and client at once.
+    if State.Hosting then
+        Log("You are currently HOSTING - joining from this same game would end your session.")
+        Log("Your partner presses Join on THEIR machine. (To switch roles here, run coop_stop first.)")
+        return
+    end
     Address = Address or Config.HostAddress
     if not Address or Address == "" then
         Log("Cannot join: no address. Set Config.HostAddress in config.lua or use: coop_join <ip>")
@@ -655,7 +704,7 @@ local function StopSession()
 end
 
 local function PrintPings()
-    local Report = GetPlayerPingReport()
+    local Report = GetPlayerPingReport(true)
     if #Report == 0 then
         Log("No players found (not in a session, or still loading).")
         return
@@ -715,6 +764,15 @@ local function CheckMapChange()
     if not Map or Map == State.LastMapPath then return end
     local Previous = State.LastMapPath
     State.LastMapPath = Map
+
+    -- New world: cached objects are stale, and a HUD that could not be
+    -- built on the previous map deserves another shot here.
+    Cache.LocalPC = nil
+    Cache.Remotes = {}
+    Cache.PlayerStates = {}
+    Hud.Broken = false
+    Hud.Attempts = 0
+
     if not Previous then return end -- first observation, not a change
 
     Verbose("Map changed: " .. Previous .. " -> " .. Map)
@@ -729,8 +787,46 @@ local function CheckMapChange()
     end
 end
 
+-- New controllers get announced only once we can prove they belong to a
+-- remote player: at construction time .Player is not assigned yet, and the
+-- host's own controller is recreated on every map load (which is what a
+-- naive "on new controller" announcement mistakes for a join).
+local function ProcessPendingJoinChecks()
+    if #State.PendingJoinChecks == 0 then return end
+    if not State.Hosting then
+        State.PendingJoinChecks = {}
+        return
+    end
+    local Remaining = {}
+    for _, Entry in ipairs(State.PendingJoinChecks) do
+        Entry.Ticks = Entry.Ticks + 1
+        local PC = Entry.PC
+        local Ok, Classified = pcall(function()
+            if not PC:IsValid() then return true end -- died before classification
+            local Player = PC.Player
+            if not (Player and Player:IsValid()) then return false end -- not classified yet
+            if not IsLocalController(PC) then
+                Log("A player joined! Controller: " .. PC:GetFullName())
+                Log("If they seem invisible, give the spawn fixer a couple of seconds, or run 'coop_fixspawns'.")
+            end
+            return true
+        end)
+        local Done = (Ok and Classified) or Entry.Ticks > 10
+        if not Done then table.insert(Remaining, Entry) end
+    end
+    State.PendingJoinChecks = Remaining
+end
+
 LoopAsync(Config.HudIntervalMs or 1000, function()
     ExecuteInGameThread(function()
+        -- One scan pass per tick; every other loop reads the cache.
+        pcall(RefreshControllerCache)
+        if State.Hosting or State.Joining then
+            pcall(function() Cache.PlayerStates = FindAllOf("PlayerState") or {} end)
+        elseif #Cache.PlayerStates > 0 then
+            Cache.PlayerStates = {}
+        end
+        pcall(ProcessPendingJoinChecks)
         pcall(UpdateHud)
         pcall(CheckMapChange)
     end)
@@ -770,29 +866,36 @@ local SimpleCommands = {
     coop_fixspawns = function() FixMissingPawns(true) end,
 }
 
+-- Console commands already execute on the game thread, so run the action
+-- directly - and acknowledge into the in-game console so there's visible
+-- feedback right where the command was typed.
+local function AckToConsole(Ar, CommandName)
+    pcall(function()
+        Ar:Log("[" .. MOD_NAME .. "] " .. CommandName .. " executed - details in the UE4SS console/log.")
+    end)
+end
+
 for CommandName, Action in pairs(SimpleCommands) do
-    RegisterConsoleCommandHandler(CommandName, function(_FullCommand, _Parameters, _Ar)
-        ExecuteInGameThread(Action)
+    RegisterConsoleCommandHandler(CommandName, function(_FullCommand, _Parameters, Ar)
+        pcall(Action)
+        AckToConsole(Ar, CommandName)
         return true
     end)
 end
 
-RegisterConsoleCommandHandler("coop_join", function(_FullCommand, Parameters, _Ar)
+RegisterConsoleCommandHandler("coop_join", function(_FullCommand, Parameters, Ar)
     local Address = Parameters[1]
-    ExecuteInGameThread(function() JoinSession(Address) end)
+    pcall(function() JoinSession(Address) end)
+    AckToConsole(Ar, "coop_join")
     return true
 end)
 
--- Cheerful feedback on the host when the partner's connection creates a
--- controller. Fires for the game's derived PlayerController class too.
+-- Queue new controllers for the join announcer; the master tick verifies
+-- they're genuinely remote before saying anything (the host's own
+-- controller is recreated on every map load).
 NotifyOnNewObject("/Script/Engine.PlayerController", function(NewController)
     if State.Hosting then
-        ExecuteInGameThread(function()
-            local Ok, Name = pcall(function() return NewController:GetFullName() end)
-            Log("A player joined! New controller: " .. (Ok and Name or "<unreadable>"))
-            Log("If they are stuck invisible, wait ~" .. tostring((Config.SpawnFixIntervalMs or 2000) / 1000) ..
-                "s for the spawn fixer, or run 'coop_fixspawns'.")
-        end)
+        table.insert(State.PendingJoinChecks, { PC = NewController, Ticks = 0 })
     end
 end)
 
