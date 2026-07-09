@@ -48,30 +48,44 @@ game never uses in single-player; nobody has reported save corruption, but a
 
 ## Console appears, but the log shows `[PS] Scan failed` / `Fatal Error: PS scan timed out`
 
-UE4SS injected fine, but its pattern scanner can't fingerprint this game's
-engine build — the stable UE4SS release is older than the game's UE5 version,
-so it can't find `GUObjectArray`/`EngineVersion` and gives up before running
-any mods. This is expected on brand-new games. Fix:
+UE4SS injected fine, but its pattern scanner can't fingerprint some of this
+game's engine internals, so it gives up before running any mods. **For Echoes
+of Aincrad specifically this is a known issue**
+([UE4SS-RE/RE-UE4SS#1283](https://github.com/UE4SS-RE/RE-UE4SS/issues/1283)):
+the game is **UE 5.3.2** with Denuvo, and its binary defeats the generic
+fingerprints for `GUObjectArray`, `FUObjectHashTables::Get()` and `GNatives`
+even on current UE4SS builds. Fixes, in order of preference:
 
-```bash
-./tools/install.sh --experimental        # Linux
-```
-```powershell
-powershell -ExecutionPolicy Bypass -File tools\install.ps1 -Experimental
-```
+1. **Make sure the engine override says 5.3** — the version cannot be read
+   from the exe (DRM), so don't guess:
 
-This upgrades to the UE4SS **experimental** build (its signatures track the
-newest UE5 versions) and writes the game's engine version — read directly out
-of the exe — into `UE4SS-settings.ini` under `[EngineVersionOverride]`, so
-UE4SS no longer depends on detecting it by memory scan. Your mod settings and
-`config.lua` are preserved across the upgrade (including the move to the new
-`ue4ss/` folder layout).
+   ```bash
+   ./tools/diagnose.sh --set-engine-version 5.3
+   ```
 
-If the experimental build *still* logs `Failed to find GUObjectArray`, the
-game needs a hand-made signature file (`UE4SS_Signatures/GUObjectArray.lua`).
-Check the game's Nexus Mods page / UE4SS Discord — for a popular release,
-someone usually publishes one within days — and open an issue here with your
-log so we can bundle it.
+   (Both installers also default to 5.3 for this game now.)
+
+2. **Use the community UE4SS package adapted for this game.** The game's
+   [Nexus Mods page](https://www.nexusmods.com/echoesofaincrad) hosts a
+   "UE4SS" package prepared for this exact binary (free Nexus account needed
+   to download). Then deploy it — the installer finds the payload no matter
+   how the zip is nested, and re-applies the mod and settings on top:
+
+   ```bash
+   ./tools/install.sh --zip ~/Downloads/<that-package>.zip
+   ```
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File tools\install.ps1 -UE4SSZip "<that-package>.zip"
+   ```
+
+3. **Custom signature files** as a last resort — see
+   [`ue4ss-config/README.md`](../ue4ss-config/README.md). Working signatures
+   dropped into `ue4ss-config/UE4SS_Signatures/*.lua` are deployed
+   automatically by the installers; please contribute them back.
+
+Note: the installers refuse to downgrade a `ue4ss/`-layout install
+(experimental or community) back to the stable release — use
+`--experimental`, `--zip`, or `--skip-ue4ss` explicitly.
 
 ## Where is `UE4SS-settings.ini`, and what goes in `[EngineVersionOverride]`?
 

@@ -12,10 +12,16 @@
 #                                             # version is newer than the
 #                                             # stable UE4SS release)
 #   ./tools/install.sh --game-path <folder>   # point at the game manually
-#   ./tools/install.sh --zip <UE4SS_vX.zip>   # use a pre-downloaded UE4SS
+#   ./tools/install.sh --zip <file.zip>       # install a specific UE4SS
+#                                             # package, e.g. the community
+#                                             # "UE4SS" from the game's Nexus
+#                                             # Mods page (recommended for
+#                                             # this game - it ships working
+#                                             # signatures)
 #   ./tools/install.sh --skip-ue4ss           # only (re)install the mod
-#   ./tools/install.sh --engine-version 5.6   # force the UE version instead
+#   ./tools/install.sh --engine-version 5.3   # force the UE version instead
 #                                             # of reading it from the exe
+#                                             # (Echoes of Aincrad is 5.3)
 #
 # The script also reads the game's Unreal Engine version out of the exe and
 # writes it into UE4SS-settings.ini ([EngineVersionOverride]) so UE4SS does
@@ -121,6 +127,10 @@ ok "Install target:  $WIN64_DIR"
 # 2. Detect the game's Unreal Engine version from the executable
 #    (the version string is embedded in the binary; we scan for it in chunks)
 # ----------------------------------------------------------------------------
+# Known version for Echoes of Aincrad: UE 5.3.2 (UE4SS-RE/RE-UE4SS#1283).
+# Used as the fallback when nothing better is available.
+KNOWN_GAME_ENGINE_VERSION="5.3"
+
 ENGINE_VERSION=""
 if [[ -n "$FORCED_ENGINE_VERSION" ]]; then
     ENGINE_VERSION="$FORCED_ENGINE_VERSION"
@@ -170,18 +180,32 @@ PYEOF
     if [[ -n "$ENGINE_VERSION" ]]; then
         ok "Detected Unreal Engine $ENGINE_VERSION"
     else
-        warn "Could not find a UE version string in the exe (this can happen with DRM)."
-        warn "Re-run with an explicit version once you know it, e.g.: --engine-version 5.6"
-        warn "(Find it on the game's PCGamingWiki/SteamDB page, or ask in the modding community.)"
+        warn "Could not read a UE version string from the exe (DRM hides it in this game)."
     fi
 else
     warn "python3 not found - skipping engine version detection."
-    warn "You can pass the version yourself instead: --engine-version 5.6"
+fi
+
+if [[ -z "$ENGINE_VERSION" ]]; then
+    ENGINE_VERSION="$KNOWN_GAME_ENGINE_VERSION"
+    ok "Falling back to the known version for this game: UE $ENGINE_VERSION"
+    ok "(documented in UE4SS-RE/RE-UE4SS issue #1283; override with --engine-version)"
 fi
 
 # ----------------------------------------------------------------------------
 # 3. Install UE4SS
 # ----------------------------------------------------------------------------
+# Never silently downgrade: if a ue4ss/-layout install (experimental or a
+# community package) is already present, a plain run would stomp it with the
+# older stable release.
+if [[ "$SKIP_UE4SS" -eq 0 && "$EXPERIMENTAL" -eq 0 && -z "$UE4SS_ZIP" && -d "$WIN64_DIR/ue4ss" ]]; then
+    die "A ue4ss/-layout UE4SS (experimental or community build) is already installed.
+Refusing to replace it with the older stable release. Pick one:
+  --experimental    update to the latest experimental build
+  --zip <file>      install a specific package (e.g. the game's Nexus UE4SS)
+  --skip-ue4ss      keep the current UE4SS; only update the mod and settings"
+fi
+
 if [[ "$SKIP_UE4SS" -eq 0 ]]; then
     if [[ "$EXPERIMENTAL" -eq 1 ]]; then
         step "Installing UE4SS (EXPERIMENTAL build - newest engine support)..."
@@ -239,7 +263,20 @@ print(pick(prereleases) or pick(releases))
         ok "Downloaded $(basename "$ZIP_TO_EXTRACT")"
     fi
     [[ -f "$ZIP_TO_EXTRACT" ]] || die "UE4SS zip not found: $ZIP_TO_EXTRACT"
-    unzip -o -q "$ZIP_TO_EXTRACT" -d "$WIN64_DIR"
+    # Extract to a staging dir first and locate the real payload: community
+    # repacks often wrap everything in one or two folders.
+    EXTRACT_TMP="$(mktemp -d)"
+    unzip -o -q "$ZIP_TO_EXTRACT" -d "$EXTRACT_TMP"
+    PAYLOAD_ROOT=""
+    for cand in "$EXTRACT_TMP" "$EXTRACT_TMP"/*/ "$EXTRACT_TMP"/*/*/; do
+        [[ -d "$cand" ]] || continue
+        if [[ -e "$cand/dwmapi.dll" || -e "$cand/xinput1_3.dll" || -d "$cand/ue4ss" || -e "$cand/UE4SS.dll" ]]; then
+            PAYLOAD_ROOT="$cand"
+            break
+        fi
+    done
+    [[ -n "$PAYLOAD_ROOT" ]] || die "That zip doesn't look like a UE4SS package (no dwmapi.dll / xinput1_3.dll / ue4ss folder inside)."
+    cp -a "$PAYLOAD_ROOT/." "$WIN64_DIR/"
     ok "UE4SS extracted next to the game executable."
 else
     step "Skipping UE4SS install (as requested)."
@@ -258,6 +295,10 @@ if [[ "$UE4SS_DIR" != "$WIN64_DIR" ]]; then
     if [[ -f "$WIN64_DIR/UE4SS.dll" ]]; then
         mv -f "$WIN64_DIR/UE4SS.dll" "$WIN64_DIR/UE4SS.dll.old-flat-layout"
         warn "Old flat-layout UE4SS.dll renamed to UE4SS.dll.old-flat-layout (new layout uses ue4ss/)."
+    fi
+    if [[ -f "$WIN64_DIR/UE4SS-settings.ini" ]]; then
+        mv -f "$WIN64_DIR/UE4SS-settings.ini" "$WIN64_DIR/UE4SS-settings.ini.old-flat-layout"
+        warn "Old flat-layout UE4SS-settings.ini renamed - the live settings file is ue4ss/UE4SS-settings.ini."
     fi
     if [[ -f "$WIN64_DIR/Mods/$MOD_NAME/Scripts/config.lua" ]]; then
         OLD_FLAT_CONFIG="$WIN64_DIR/Mods/$MOD_NAME/Scripts/config.lua"
@@ -320,6 +361,18 @@ if [[ -f "$SETTINGS_INI" ]]; then
     fi
 else
     warn "UE4SS-settings.ini not found in '$UE4SS_DIR' - if the mod does not load, see docs/TROUBLESHOOTING.md."
+fi
+
+# ----------------------------------------------------------------------------
+# 6. Deploy custom engine signatures, if this repo ships any
+#    (UE4SS_Signatures/*.lua teach UE4SS where this game's internals live
+#    when its built-in fingerprints miss; see ue4ss-config/README.md)
+# ----------------------------------------------------------------------------
+SIG_SOURCE="$REPO_ROOT/ue4ss-config/UE4SS_Signatures"
+if [[ -d "$SIG_SOURCE" ]] && compgen -G "$SIG_SOURCE/*.lua" > /dev/null; then
+    mkdir -p "$UE4SS_DIR/UE4SS_Signatures"
+    cp "$SIG_SOURCE"/*.lua "$UE4SS_DIR/UE4SS_Signatures/"
+    ok "Custom engine signatures deployed to $UE4SS_DIR/UE4SS_Signatures/"
 fi
 
 # ----------------------------------------------------------------------------

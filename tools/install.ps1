@@ -24,14 +24,18 @@ param(
     # UE5 version is newer than what the stable UE4SS release supports
     # (symptom: UE4SS.log full of "[PS] Scan failed" / "PS scan timed out").
     [switch]$Experimental,
-    # Force the game's Unreal Engine version (e.g. "5.6") instead of reading
+    # Force the game's Unreal Engine version (e.g. "5.3") instead of reading
     # it from the exe. Written to UE4SS-settings.ini [EngineVersionOverride].
+    # Echoes of Aincrad is UE 5.3 (per UE4SS-RE/RE-UE4SS issue #1283).
     [string]$EngineVersion
 )
 
 if ($EngineVersion -and $EngineVersion -notmatch '^5\.\d+$') {
-    throw "-EngineVersion must look like '5.6' (major.minor, no patch digit)"
+    throw "-EngineVersion must look like '5.3' (major.minor, no patch digit)"
 }
+
+# Known version for Echoes of Aincrad, used when nothing better is available.
+$KnownGameEngineVersion = '5.3'
 
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
@@ -149,14 +153,29 @@ if ($EngineVersion) {
     if ($EngineVersion) {
         Write-Ok "Detected Unreal Engine $EngineVersion"
     } else {
-        Write-Warn2 "Could not find a UE version string in the exe (can happen with DRM)."
-        Write-Warn2 "Re-run with an explicit version once you know it, e.g.: -EngineVersion 5.6"
+        Write-Warn2 "Could not read a UE version string from the exe (DRM hides it in this game)."
+        $EngineVersion = $KnownGameEngineVersion
+        Write-Ok "Falling back to the known version for this game: UE $EngineVersion"
+        Write-Ok "(documented in UE4SS-RE/RE-UE4SS issue #1283; override with -EngineVersion)"
     }
 }
 
 # ----------------------------------------------------------------------------
 # 2. Install UE4SS
 # ----------------------------------------------------------------------------
+# Never silently downgrade: if a ue4ss\-layout install (experimental or a
+# community package) is already present, a plain run would stomp it with the
+# older stable release.
+if (-not $SkipUE4SS -and -not $Experimental -and -not $UE4SSZip -and (Test-Path (Join-Path $win64Dir 'ue4ss'))) {
+    throw @"
+A ue4ss\-layout UE4SS (experimental or community build) is already installed.
+Refusing to replace it with the older stable release. Pick one:
+  -Experimental     update to the latest experimental build
+  -UE4SSZip <file>  install a specific package (e.g. the game's Nexus UE4SS)
+  -SkipUE4SS        keep the current UE4SS; only update the mod and settings
+"@
+}
+
 if (-not $SkipUE4SS) {
     Write-Step "Installing UE4SS (the mod loader)..."
     $zipToExtract = $null
@@ -195,7 +214,21 @@ if (-not $SkipUE4SS) {
         Write-Ok "Downloaded $($asset.name) ($([math]::Round($asset.size / 1MB, 1)) MB)"
     }
 
-    Expand-Archive -Path $zipToExtract -DestinationPath $win64Dir -Force
+    # Extract to a staging dir first and locate the real payload: community
+    # repacks often wrap everything in one or two folders.
+    $tmpExtract = Join-Path $env:TEMP ("ue4ss_extract_" + [IO.Path]::GetRandomFileName())
+    Expand-Archive -Path $zipToExtract -DestinationPath $tmpExtract -Force
+    $payloadRoot = @($tmpExtract) + @(Get-ChildItem -Path $tmpExtract -Directory -Recurse -Depth 2 | ForEach-Object { $_.FullName }) |
+        Where-Object {
+            (Test-Path (Join-Path $_ 'dwmapi.dll')) -or
+            (Test-Path (Join-Path $_ 'xinput1_3.dll')) -or
+            (Test-Path (Join-Path $_ 'ue4ss')) -or
+            (Test-Path (Join-Path $_ 'UE4SS.dll'))
+        } | Select-Object -First 1
+    if (-not $payloadRoot) {
+        throw "That zip doesn't look like a UE4SS package (no dwmapi.dll / xinput1_3.dll / ue4ss folder inside)."
+    }
+    Copy-Item -Path (Join-Path $payloadRoot '*') -Destination $win64Dir -Recurse -Force
     Write-Ok "UE4SS extracted next to the game executable."
 } else {
     Write-Step "Skipping UE4SS install (as requested)."
@@ -215,6 +248,11 @@ if ($ue4ssDir -ne $win64Dir) {
     if (Test-Path $oldDll) {
         Move-Item -Path $oldDll -Destination "$oldDll.old-flat-layout" -Force
         Write-Warn2 "Old flat-layout UE4SS.dll renamed to UE4SS.dll.old-flat-layout (new layout uses ue4ss\)."
+    }
+    $oldIni = Join-Path $win64Dir 'UE4SS-settings.ini'
+    if (Test-Path $oldIni) {
+        Move-Item -Path $oldIni -Destination "$oldIni.old-flat-layout" -Force
+        Write-Warn2 "Old flat-layout UE4SS-settings.ini renamed - the live settings file is ue4ss\UE4SS-settings.ini."
     }
     $oldCfg = Join-Path $win64Dir "Mods\$ModName\Scripts\config.lua"
     if (Test-Path $oldCfg) { $oldFlatConfig = $oldCfg }
@@ -284,6 +322,15 @@ if (Test-Path $settingsIni) {
     Write-Ok "Console enabled."
 } else {
     Write-Warn2 "UE4SS-settings.ini not found (looked in '$ue4ssDir'). If the mod does not load, see docs/TROUBLESHOOTING.md."
+}
+
+# Deploy custom engine signatures, if this repo ships any (see ue4ss-config/).
+$sigSource = Join-Path $RepoRoot 'ue4ss-config\UE4SS_Signatures'
+if ((Test-Path $sigSource) -and (Get-ChildItem -Path $sigSource -Filter '*.lua' -ErrorAction SilentlyContinue)) {
+    $sigTarget = Join-Path $ue4ssDir 'UE4SS_Signatures'
+    New-Item -ItemType Directory -Path $sigTarget -Force | Out-Null
+    Copy-Item -Path (Join-Path $sigSource '*.lua') -Destination $sigTarget -Force
+    Write-Ok "Custom engine signatures deployed to $sigTarget"
 }
 
 # ----------------------------------------------------------------------------
