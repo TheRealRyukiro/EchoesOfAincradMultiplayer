@@ -87,6 +87,39 @@ This is the "no pawn" state the spawn fixer exists for:
 - NPCs standing frozen on the joiner's screen but moving on the host's means
   their movement component doesn't replicate — known limitation, roadmap item.
 
+## No HUD appears on screen / where's the ping display?
+
+- The HUD only shows **while in a session** (hosting or joined) — it hides
+  itself in single-player. Press F10 (`coop_hud`) in case it was toggled off.
+- Ping is measured by the engine itself (PlayerState) and replicates to both
+  sides: the joiner sees their round-trip to the host; the host sees the
+  joiner's. The host's own ping reading ~0 is correct, not a bug.
+- The HUD is built from engine UMG widgets at runtime; on some engine
+  versions that construction can fail. The mod then says
+  `On-screen HUD unavailable...` once and mirrors the same info to the UE4SS
+  console instead — `coop_ping` always works there. If you hit this, include
+  the logged error when reporting; it's fixable per-game.
+- Ping showing `...` for a player means the engine hasn't measured it yet
+  (a few seconds after joining) or the session isn't actually connected —
+  check `coop_status`.
+
+## Partner spawned somewhere else entirely / fell through the floor
+
+- `Config.SpawnAtHost = true` (default) teleports them to the host right
+  after their body spawns. If they still end up elsewhere, the host can run
+  `coop_warp` (bring partner here) or `coop_goto` (go to partner) any time.
+- Falling through the floor after a teleport usually means the offset placed
+  them outside geometry — nudge `Config.WarpOffset` down (e.g. 100) and try
+  again.
+
+## Menus misbehave on the host / partner freezes when host opens a menu
+
+- While a partner is connected, the mod cancels the game's attempts to pause
+  (single-player games pause for menus; that would freeze the partner too).
+  If a menu acts strangely on the host because of this, set
+  `Config.KeepWorldRunning = false` — the trade-off is the partner's world
+  freezing whenever the host opens a menu.
+
 ## The game gets weird while hosting (AI stuck, scripted events double-fire)
 
 - Turn off `Config.ForceReplication` and re-test; some actors react badly to

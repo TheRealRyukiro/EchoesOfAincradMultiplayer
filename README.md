@@ -26,7 +26,10 @@ trip (Denuvo anti-tamper does not object to runtime mods like UE4SS).
 | --- | --- |
 | Seeing each other move around Aincrad in real time | ✅ core feature |
 | Exploring towns, fields and dungeons together | ✅ |
-| Second player gets a body spawned automatically | ✅ (automatic fixer + `coop_fixspawns`) |
+| Second player gets a body spawned automatically | ✅ automatic fixer + `coop_fixspawns`, spawns next to the host |
+| On-screen session HUD with live ping (ms) | ✅ F10 to toggle; falls back to console if UMG creation fails |
+| Teleport to each other | ✅ `coop_warp` / `coop_goto` (host runs them) |
+| Host's menus don't freeze the partner's world | ✅ pause guard while a partner is connected |
 | NPCs/enemies visible and moving for the joining player | 🟡 forced at runtime, host-authoritative |
 | Combat damage/health synced between players | ❌ not yet — see [docs/ROADMAP.md](docs/ROADMAP.md) |
 | Quest progress, inventory, cutscenes, menus | ❌ stay local to each player |
@@ -82,6 +85,10 @@ Both PCs need their own copy of the game (Steam demo or full release — but
 | F7 | `coop_host` | Re-open your current map as a co-op session (host) |
 | F8 | `coop_join <ip>` | Join a host |
 | F9 | `coop_status` | Print a diagnostic report to the UE4SS console |
+| F10 | `coop_hud` | Show/hide the on-screen HUD (players, ping, session time) |
+| — | `coop_ping` | Print everyone's ping to the console |
+| — | `coop_warp` | Teleport your partner to you (run on the host) |
+| — | `coop_goto` | Teleport yourself to your partner (run on the host) |
 | — | `coop_fixspawns` | Force-spawn a body for any player stuck invisible |
 | — | `coop_stop` | Leave the session |
 

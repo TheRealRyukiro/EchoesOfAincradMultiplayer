@@ -28,7 +28,7 @@ modification but doesn't interfere with this — the exe is never modified.
 
 ## What the Lua mod actually does
 
-`main.lua` is ~350 lines and does five things:
+`main.lua` does eight things:
 
 1. **Host** (`coop_host` / F7): reads the current world's package path (e.g.
    `/Game/Maps/L_Floor01`) from the `UWorld` object and executes
@@ -49,9 +49,25 @@ modification but doesn't interfere with this — the exe is never modified.
    `SetReplicates(true)` + `SetReplicateMovement(true)` on every `APawn` that
    doesn't have it yet. Host-authoritative: NPCs think and move on the host,
    the joiner sees mirrored transforms.
-5. **Diagnostics** (`coop_status` / F9): dumps mode, map, every controller
-   (local/remote, has-pawn, pawn class) and GameMode presence — the exact
-   facts needed to debug a broken session remotely.
+5. **Pause guard** (host, every 300 ms): single-player games pause the world
+   for menus; on a listen server that freezes the partner too. While a
+   partner is connected, `IsGamePaused` → `SetGamePaused(false)` vetoes it.
+6. **HUD + ping** (every second): the engine already measures each player's
+   round-trip time in `APlayerState` (`GetPingInMilliseconds`, with the
+   replicated `CompressedPing`/`ExactPing` properties as fallbacks across
+   engine versions), so ping needs no custom netcode at all. Displaying it
+   is the hard part: shipping builds compile out `PrintString` and `stat`
+   overlays, so the mod hand-builds the smallest possible UMG widget through
+   reflection — an empty `UserWidget` whose root is one `TextBlock` — and
+   rewrites its text each second. If widget construction fails on some game
+   build, the HUD demotes itself to console output, deduplicated so it
+   doesn't flood.
+7. **Teleport helpers** (`coop_warp`, `coop_goto`, and spawn-at-host): the
+   host owns the world, so `K2_TeleportTo` on any pawn is authoritative and
+   replicates to the client for free.
+8. **Diagnostics** (`coop_status` / F9): dumps mode, map, every controller
+   (local/remote, has-pawn, pawn class), per-player ping and GameMode
+   presence — the exact facts needed to debug a broken session remotely.
 
 Everything runs through `pcall` with validity checks, because game updates
 can rename or restructure classes; a failed call logs and moves on instead of

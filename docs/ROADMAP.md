@@ -3,9 +3,14 @@
 ## v0.1 — scaffold (this release)
 
 Host/join over UE's listen-server networking, automatic pawn spawning for the
-joiner, runtime replication for NPCs, diagnostics (`coop_status`), installer,
-docs. Written against engine-level classes only; needs its first contact with
-the retail build.
+joiner, runtime replication for NPCs, diagnostics (`coop_status`), installer
+(Windows + Linux/Proton), docs. Written against engine-level classes only;
+needs its first contact with the retail build.
+
+v0.1.1 quality-of-life additions: on-screen HUD with live ping/session timer
+(UMG-built, console fallback), `coop_ping`, teleport helpers
+(`coop_warp`/`coop_goto`), spawn-at-host, pause guard so the host's menus
+don't freeze the partner, and a map-change watcher with recovery hints.
 
 ## v0.2 — tuned to the game
 
@@ -13,8 +18,7 @@ The first play-testing sessions will tell us the game's real class names
 (`coop_status` prints them). Then:
 
 - Pin the game's pawn/GameMode/PlayerController classes in `main.lua` instead
-  of relying on generic `RestartPlayer` behavior; spawn the joiner next to the
-  host instead of at a PlayerStart.
+  of relying on generic `RestartPlayer` behavior.
 - Carry the joiner's character-creator appearance onto their spawned pawn
   (read their save's customization data, apply to the pawn's mesh components).
 - Handle map travel: when the host changes floors, bring the joiner along
