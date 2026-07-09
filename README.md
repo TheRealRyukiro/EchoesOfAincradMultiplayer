@@ -38,16 +38,32 @@ the partner is physically present in the same world. Deeper sync is the roadmap.
 ## Quick start
 
 Both PCs need their own copy of the game (Steam demo or full release — but
-**both must run the same version**).
+**both must run the same version**: demo joins demo, full joins full).
 
-1. **Install** — on each PC, clone/download this repo and run:
+> **Works on the free demo today.** The demo is the same packaged UE5 build,
+> so you can install the mod and test co-op before the full game releases.
+
+1. **Install** — on each PC, clone/download this repo and run the installer:
+
+   Windows:
 
    ```powershell
    powershell -ExecutionPolicy Bypass -File tools\install.ps1
    ```
 
-   This downloads UE4SS, installs it next to the game's executable, and copies
-   the mod in. Manual steps in [docs/INSTALL.md](docs/INSTALL.md).
+   Linux (game runs through Proton; UE4SS injects fine under it):
+
+   ```bash
+   ./tools/install.sh
+   ```
+
+   The Linux script prints one required follow-up: a `WINEDLLOVERRIDES`
+   Steam launch option so Proton loads the mod loader.
+
+   Either script downloads UE4SS, installs it next to the game's executable,
+   and copies the mod in. Manual steps in [docs/INSTALL.md](docs/INSTALL.md).
+   Mixed Windows/Linux couples are fine — the network protocol is identical
+   because it's the same game binary on both sides.
 
 2. **Connect your PCs** — same Wi-Fi/LAN works out of the box. Over the
    internet, install [Tailscale](https://tailscale.com) on both PCs (free, no
@@ -76,7 +92,8 @@ Keys are configurable in `Mods/AincradTogether/Scripts/config.lua`.
 ```
 Mods/AincradTogether/Scripts/main.lua    the mod
 Mods/AincradTogether/Scripts/config.lua  user settings (IP, keys, fixer toggles)
-tools/install.ps1                        one-shot installer for each PC
+tools/install.ps1                        one-shot installer (Windows)
+tools/install.sh                         one-shot installer (Linux/Proton)
 docs/                                    install, connecting, troubleshooting,
                                          how it works, roadmap
 ```

@@ -7,12 +7,15 @@ your game or you prefer to see every step.
 ## Requirements
 
 - Echoes of Aincrad installed via Steam (demo or full game — **both PCs must
-  run the same version**; demo cannot join full game or vice versa).
-- Windows 10/11.
+  run the same version**; demo cannot join full game or vice versa. The demo
+  works with this mod, so you can test co-op before release day).
+- Windows 10/11, **or** Linux running the game through Steam's Proton
+  (jump to [Linux install](#linux-install-proton)). One player on each is
+  fine — it's the same game binary, so they connect to each other normally.
 - This repository downloaded somewhere (green "Code" button → Download ZIP is
   fine; unzip it).
 
-## Automated install
+## Windows: automated install
 
 Open PowerShell (Start menu → type "powershell"), then:
 
@@ -34,7 +37,7 @@ The script:
 Re-running the script later **updates the mod without overwriting your
 `config.lua` settings**.
 
-## Manual install
+## Windows: manual install
 
 1. **Find the real game executable.** Steam → right-click the game → Manage →
    Browse local files. Inside, find the folder that looks like
@@ -60,6 +63,44 @@ Re-running the script later **updates the mod without overwriting your
    GuiConsoleEnabled = 1
    GuiConsoleVisible = 1
    ```
+
+## Linux install (Proton)
+
+The game has no native Linux build — Steam runs it through Proton, which is
+exactly the environment UE4SS is known to work in (it's the standard Steam
+Deck modding setup). The mod itself is Lua running inside the engine and
+doesn't care about the OS.
+
+1. Run the installer:
+
+   ```bash
+   ./tools/install.sh
+   ```
+
+   It finds the game in your Steam libraries (including Flatpak/Snap Steam),
+   downloads UE4SS, installs the mod, enables the UE4SS console, and switches
+   the console's rendering to OpenGL (the DX11 debug window is flaky under
+   Wine). Use `--game-path "<folder>"` if auto-detection fails.
+
+2. **The one extra step Linux needs**: UE4SS gets loaded because the game
+   pulls in a Windows system DLL (`dwmapi.dll`) that UE4SS impersonates.
+   Wine normally uses its own built-in version, so you must tell it to prefer
+   the local file. Steam → right-click the game → Properties → Launch Options:
+
+   ```
+   WINEDLLOVERRIDES="dwmapi=n,b" %command%
+   ```
+
+   (The installer prints this line with the correct DLL name for the UE4SS
+   version it installed.)
+
+3. If you'll be the **host**, open UDP 7777 in your firewall if you run one
+   (`sudo ufw allow 7777/udp` — if `ufw` isn't installed, you likely have no
+   firewall and nothing to do).
+
+Manual install on Linux is the same as the Windows manual steps — the game
+folder lives under `~/.local/share/Steam/steamapps/common/`, and `unzip` the
+UE4SS release into `.../Binaries/Win64/` — plus the launch option above.
 
 ## Verify it works
 
