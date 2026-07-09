@@ -1,0 +1,20 @@
+-- Template for a custom GNatives signature (rename to GNatives.lua to use).
+-- The pattern below is a placeholder shape and will NOT work as-is: a real
+-- one must be derived from this game's binary in a disassembler by finding
+-- code that references the GNatives array (e.g. inside ProcessInternal /
+-- FFrame::Step: "lea rax, [GNatives]" style instructions).
+
+function Register()
+    -- Space-separated hex bytes; ?? = wildcard byte.
+    return "4C 8D ?? ?? ?? ?? ?? 49 63 ?? 4C 8D"
+end
+
+function OnMatchFound(MatchAddress)
+    -- Typical pattern: the match lands on an instruction whose bytes 3..6
+    -- hold a 32-bit RIP-relative offset to the global. Resolve it:
+    --   local Offset = DerefToInt32(MatchAddress + 3)
+    --   return MatchAddress + 7 + Offset
+    -- (Helper names depend on the UE4SS version; see the UE4SS docs page
+    -- "UE4SS_Signatures" for the exact API available to these scripts.)
+    return MatchAddress
+end

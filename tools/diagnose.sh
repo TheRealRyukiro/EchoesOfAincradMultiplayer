@@ -15,7 +15,8 @@
 # on an EXISTING install, without reinstalling anything:
 #
 #   ./tools/diagnose.sh --set-engine-version auto   # version read from the exe
-#   ./tools/diagnose.sh --set-engine-version 5.6    # version you provide
+#   ./tools/diagnose.sh --set-engine-version 5.3    # version you provide
+#                                                   # (Echoes of Aincrad = 5.3)
 # ============================================================================
 
 set -uo pipefail   # no -e on purpose: keep going and report everything
@@ -33,7 +34,7 @@ done
 
 if [[ -n "$SET_ENGINE_VERSION" && "$SET_ENGINE_VERSION" != "auto" ]] \
         && ! [[ "$SET_ENGINE_VERSION" =~ ^5\.[0-9]+$ ]]; then
-    echo "ERROR: --set-engine-version takes 'auto' or a version like '5.6' (major.minor, no patch digit)"
+    echo "ERROR: --set-engine-version takes 'auto' or a version like '5.3' (major.minor, no patch digit)"
     exit 1
 fi
 
@@ -198,7 +199,7 @@ if [[ -f "$SETTINGS_INI" ]]; then
             TARGET_VERSION="${ENGINE_VERSION:-}"
             if [[ -z "$TARGET_VERSION" ]]; then
                 fail "--set-engine-version auto: could not read a version from the exe."
-                note "Pass it explicitly instead, e.g.: --set-engine-version 5.6"
+                note "Pass it explicitly instead - for Echoes of Aincrad: --set-engine-version 5.3"
                 exit 1
             fi
         fi
@@ -250,6 +251,22 @@ if [[ -n "$STEAMAPPS_DIR" ]]; then
         [[ -f "$manifest" ]] || continue
         if grep -q "\"installdir\"[[:space:]]*\"$INSTALL_DIR_NAME\"" "$manifest"; then
             APPID="$(basename "$manifest" | sed -E 's/appmanifest_([0-9]+)\.acf/\1/')"
+            break
+        fi
+    done
+fi
+
+# The game's own runtime log states the exact engine version - the most
+# reliable source when the exe string is DRM-hidden. Proton keeps it inside
+# the game's Wine prefix. (Shipping builds don't always write logs; best
+# effort.)
+if [[ -n "$APPID" && -n "$STEAMAPPS_DIR" ]]; then
+    for gamelog in "$STEAMAPPS_DIR/compatdata/$APPID/pfx/drive_c/users/steamuser/AppData/Local"/*/Saved/Logs/*.log; do
+        [[ -f "$gamelog" ]] || continue
+        EV_LINE="$(grep -m1 -oE 'Engine Version: [0-9]+\.[0-9]+\.[0-9]+[^[:space:]]*' "$gamelog" || true)"
+        if [[ -n "$EV_LINE" ]]; then
+            info "Game's own log says: $EV_LINE"
+            note "(from $gamelog)"
             break
         fi
     done
@@ -316,26 +333,29 @@ Lua tab or the in-game console (~ or F10 area keys) and running: coop_host
 If the UE4SS console window never appears but the log exists, the GUI can't
 draw under this Proton setup - the mod still works; check the log for its
 messages after pressing F7."
-    elif grep -qE 'PS scan timed out|\[PS\] Scan failed|Failed to find GUObjectArray|Failed to find EngineVersion' "$UE4SS_LOG"; then
+    elif grep -qE 'PS scan timed out|\[PS\] Scan failed|Failed to find ' "$UE4SS_LOG"; then
         fail "UE4SS runs, but its pattern scan cannot fingerprint this game's engine build."
         note "(log shows 'Scan failed' / 'PS scan timed out' - UE4SS gives up before running any mods)"
-        VERDICT="This UE4SS build is older than the game's Unreal Engine version, so it cannot
-find the engine internals it needs (GUObjectArray/EngineVersion). Fix:
+        echo
+        info "Signatures the scan could not find:"
+        grep -oE 'Failed to find [A-Za-z_:()]+' "$UE4SS_LOG" | sort -u | sed -E 's/^Failed to find /       - /; s/:+$//'
+        VERDICT="Echoes of Aincrad (UE 5.3.2 + Denuvo) is a known-difficult binary for UE4SS's
+scanner - some signatures fail even on current builds (tracked upstream as
+UE4SS-RE/RE-UE4SS issue #1283). Fixes, in order of preference:
 
-    ./tools/install.sh --experimental
+1. Correct the engine override for this game (it is UE 5.3 - do NOT guess):
+       ./tools/diagnose.sh --set-engine-version 5.3
 
-That installs the UE4SS experimental build (signatures for the newest UE5
-versions) and writes the game's engine version - read out of the exe - into
-UE4SS-settings.ini as an override. Then launch again and re-run this script.
+2. Install the community UE4SS package adapted for this game: on the game's
+   Nexus Mods page (nexusmods.com/echoesofaincrad) search for 'UE4SS',
+   download it, then deploy it with:
+       ./tools/install.sh --zip ~/Downloads/<that-package>.zip
+   (works regardless of how the zip is nested; our mod and settings are
+   re-applied on top)
 
-To ONLY write the version override into the current install (no reinstall):
-
-    ./tools/diagnose.sh --set-engine-version auto
-
-If the experimental build still logs 'Failed to find GUObjectArray', the game
-needs a custom signature (UE4SS_Signatures/GUObjectArray.lua) - paste this
-output when asking for help and check the game's modding community, which
-usually publishes one within days of release."
+3. Still failing? Custom signature files are the last resort - see
+   ue4ss-config/README.md in this repo, and paste this whole output plus
+   UE4SS.log when asking for help."
     else
         fail "UE4SS runs, but the mod banner is NOT in the log."
         echo
