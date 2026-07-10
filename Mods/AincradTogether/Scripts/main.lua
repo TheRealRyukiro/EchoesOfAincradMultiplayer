@@ -27,7 +27,7 @@
 local Config = require("config")
 
 local MOD_NAME = "AincradTogether"
-local MOD_VERSION = "0.1.4"
+local MOD_VERSION = "0.1.5"
 
 -- ----------------------------------------------------------------------------
 -- State
@@ -378,6 +378,9 @@ local function TryCreateHud()
         WidgetTree.RootWidget = TextBlock
         Widget:AddToViewport(10000)
         pcall(function() Widget:SetVisibility(SLATE_VISIBILITY_SELF_HIT_TEST_INVISIBLE) end)
+        -- Slightly translucent so the corner watermark reads as an overlay,
+        -- not game UI. Best-effort: not all builds expose it.
+        pcall(function() Widget:SetRenderOpacity(0.85) end)
         TextBlock:SetText(MakeText(MOD_NAME))
 
         Hud.Widget = Widget
@@ -408,6 +411,14 @@ end
 
 local function BuildHudText()
     local Lines = {}
+
+    -- Permanent corner watermark: always the first line, visible in and out
+    -- of sessions (F6 hides the whole HUD; Config.ShowWatermark disables
+    -- just this line).
+    if Config.ShowWatermark ~= false then
+        table.insert(Lines, MOD_NAME .. " v" .. MOD_VERSION)
+    end
+
     if State.Hosting then
         local Remotes = GetRemoteControllers()
         if #Remotes == 0 then
@@ -417,22 +428,24 @@ local function BuildHudText()
         end
     elseif State.Joining then
         table.insert(Lines, "CONNECTED" .. FormatSessionClock())
-    else
-        return nil -- solo: nothing to show
     end
 
     -- Ping is measured by whichever machine is the server, so each side
     -- shows the number that is real for it: the host shows the partner's
-    -- ping, the client shows its own round-trip to the host.
-    for _, Entry in ipairs(GetPlayerPingReport()) do
-        local Ping = Entry.PingMs and (tostring(Entry.PingMs) .. " ms") or "..."
-        if State.Joining and Entry.IsLocal then
-            table.insert(Lines, "your ping: " .. Ping)
-        elseif State.Hosting and not Entry.IsLocal then
-            table.insert(Lines, string.format("%s: %s", Entry.Name, Ping))
+    -- ping, the client shows its own round-trip to the host. (Session only:
+    -- solo must not touch the PlayerState cache, which could trigger scans.)
+    if State.Hosting or State.Joining then
+        for _, Entry in ipairs(GetPlayerPingReport()) do
+            local Ping = Entry.PingMs and (tostring(Entry.PingMs) .. " ms") or "..."
+            if State.Joining and Entry.IsLocal then
+                table.insert(Lines, "your ping: " .. Ping)
+            elseif State.Hosting and not Entry.IsLocal then
+                table.insert(Lines, string.format("%s: %s", Entry.Name, Ping))
+            end
         end
     end
 
+    if #Lines == 0 then return nil end
     return table.concat(Lines, "\n")
 end
 
@@ -459,9 +472,11 @@ local function UpdateHud()
             if AsText then Hud.TextBlock:SetText(AsText) end
         end)
     else
-        -- Console fallback: single-line version. Strip the session clock
-        -- (it changes every second) and rate-limit, so we inform without
-        -- flooding the console.
+        -- Console fallback: single-line version. Only while in a session (a
+        -- watermark line alone is pointless in a log), stripped of the
+        -- session clock (it changes every second) and rate-limited, so we
+        -- inform without flooding the console.
+        if not (State.Hosting or State.Joining) then return end
         local Flat = string.gsub(Text, "\n", "  |  ")
         Flat = string.gsub(Flat, " | %d+:%d%d:%d%d", "")
         local Now = os.time and os.time() or 0

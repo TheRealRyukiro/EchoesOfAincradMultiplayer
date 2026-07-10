@@ -38,11 +38,15 @@ Config.Keybinds = {
 -- On-screen HUD (session state + live ping)
 -- ---------------------------------------------------------------------------
 
--- Draw a small text HUD (top-left) while in a session: who is connected,
--- their ping in ms, and how long you've been playing. Built from engine UMG
--- widgets; if that fails on some game version, the same line goes to the
--- UE4SS console instead. Toggle at runtime with the ToggleHud key.
+-- Draw a small text HUD (top-left): a permanent "AincradTogether vX.X.X"
+-- watermark, plus - while in a session - who is connected, their ping in
+-- ms, and how long you've been playing. Built from engine UMG widgets; if
+-- that fails on some game version, the session info goes to the UE4SS
+-- console instead. Toggle everything at runtime with the ToggleHud key.
 Config.ShowHud = true
+
+-- The corner version watermark specifically (the session info stays).
+Config.ShowWatermark = true
 
 -- How often the HUD (and the map-change watcher) refreshes.
 Config.HudIntervalMs = 1000

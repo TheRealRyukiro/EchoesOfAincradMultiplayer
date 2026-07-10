@@ -28,7 +28,7 @@ trip (Denuvo anti-tamper does not object to runtime mods like UE4SS).
 | Hosting your world as a co-op session | ✅ verified in-game on the demo |
 | Seeing each other move around Aincrad in real time | ✅ engine-level, needs first two-PC test |
 | Second player gets a body spawned automatically | ✅ automatic fixer + `coop_fixspawns`, spawns next to the host |
-| On-screen session HUD with live ping (ms) | 🟡 falls back to the UE4SS console on this game (fix in progress); `coop_ping`/`coop_status` always work |
+| Corner watermark with the mod version, session HUD with live ping (ms) | ✅ F6 toggles; console fallback if widget creation fails — `coop_ping`/`coop_status` always work |
 | Teleport to each other | ✅ `coop_warp` / `coop_goto` (host runs them) |
 | Host's menus don't freeze the partner's world | ✅ pause guard while a partner is connected |
 | NPCs/enemies visible and moving for the joining player | 🟡 forced at runtime, host-authoritative |
@@ -116,8 +116,13 @@ tools/diagnose.sh                        install health check + repair (Linux)
 ue4ss-config/                            game-specific UE4SS fixes & signature
                                          templates (see its README)
 docs/                                    install, connecting, troubleshooting,
-                                         how it works, roadmap
+                                         how it works, roadmap, and the
+                                         MODDING-GUIDE for extending the mod
 ```
+
+Want to extend the mod yourself? Start with
+[docs/MODDING-GUIDE.md](docs/MODDING-GUIDE.md) — the whole stack explained,
+where to learn each language, and what's possible when modding this game.
 
 ## Fair-play & legal notes
 

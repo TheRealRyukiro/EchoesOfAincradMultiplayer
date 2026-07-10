@@ -1,4 +1,4 @@
-# AincradTogether v0.1.4
+# AincradTogether v0.1.5
 
 Co-op mod for Echoes of Aincrad — see the other player, explore Aincrad
 together, engine-level netcode woken up via UE4SS.
@@ -19,7 +19,17 @@ nothing else to download:
 
 Re-run the same file any time to update.
 
-## What's new in v0.1.4
+## What's new in v0.1.5
+
+- **Permanent corner watermark**: `AincradTogether vX.X.X` in the top-left of
+  the screen, always visible in-game (F6 hides the whole HUD;
+  `Config.ShowWatermark = false` removes just the watermark). Instant visual
+  proof the mod is loaded and which version you run.
+- **docs/MODDING-GUIDE.md**: the whole stack explained for anyone who wants
+  to extend the mod - languages, learning resources, what's possible when
+  modding this game, and a graded list of next projects.
+
+## v0.1.4
 
 - **Zero-download UE4SS**: the game-ready community UE4SS build
   (`UE4SS_5_3_2.zip`) is bundled in the repo; when UE4SS is missing, the

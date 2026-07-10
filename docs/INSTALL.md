@@ -119,9 +119,13 @@ Launch the game through Steam. A separate "UE4SS" console window should appear
 and, among its startup text, print:
 
 ```
-[AincradTogether] AincradTogether v0.1.4 loaded.
+[AincradTogether] AincradTogether vX.X.X loaded.
 [AincradTogether] Keys: F7=Host  F8=Join  F9=Status  F6=HUD on/off
 ```
+
+(A small `AincradTogether vX.X.X` watermark also appears in the top-left
+corner of the screen once you're in-game — instant visual proof the mod is
+running.)
 
 If the window doesn't appear or the message is missing, head to
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
