@@ -1,5 +1,5 @@
 -- ============================================================================
--- AincradTogether v0.1.1
+-- AincradTogether (version: see MOD_VERSION below)
 -- Co-op mod for Echoes of Aincrad (Unreal Engine 5), loaded via UE4SS.
 --
 -- How it works, in one paragraph: every packaged Unreal Engine game ships
