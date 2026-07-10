@@ -29,7 +29,9 @@ Config.Keybinds = {
     Host      = "F7",  -- start hosting the map you are currently standing in
     Join      = "F8",  -- join Config.HostAddress
     Status    = "F9",  -- print a session/diagnostic report to the UE4SS console
-    ToggleHud = "F10", -- show/hide the on-screen session HUD
+    ToggleHud = "F6",  -- show/hide the on-screen session HUD
+                       -- (not F10: that opens the in-game console, where the
+                       --  coop_* commands are typed)
 }
 
 -- ---------------------------------------------------------------------------

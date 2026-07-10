@@ -271,9 +271,11 @@ if (-not $SkipUE4SS) {
             (Test-Path (Join-Path $_ 'UE4SS.dll'))
         } | Select-Object -First 1
     if (-not $payloadRoot) {
+        Remove-Item -Path $tmpExtract -Recurse -Force -ErrorAction SilentlyContinue
         throw "That zip doesn't look like a UE4SS package (no dwmapi.dll / xinput1_3.dll / ue4ss folder inside)."
     }
     Copy-Item -Path (Join-Path $payloadRoot '*') -Destination $win64Dir -Recurse -Force
+    Remove-Item -Path $tmpExtract -Recurse -Force -ErrorAction SilentlyContinue
     Write-Ok "UE4SS extracted next to the game executable."
 } else {
     Write-Step "Skipping UE4SS install (as requested)."

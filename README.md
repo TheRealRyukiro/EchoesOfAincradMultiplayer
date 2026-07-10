@@ -13,21 +13,22 @@ does the heavy lifting. The mod is a Lua script loaded by
 no game files are redistributed, and there is no anti-cheat in this game to
 trip (Denuvo anti-tamper does not object to runtime mods like UE4SS).
 
-> **Status: v0.1 — experimental.** The game released on 2026-07-10 and this
-> scaffold has not yet been tuned against the retail build. The host/join
-> plumbing is the proven technique used by co-op mods for many single-player
-> UE games; the game-specific fixes will need iteration. `coop_status` and the
-> UE4SS log exist precisely to make that iteration fast — see
-> [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+> **Status: v0.1.2 — hosting verified on the Steam demo.** The mod loads and
+> F7 confirmed brings up a real listen server in-game (via the community
+> UE4SS build — see the install note below). The join half awaits its first
+> two-PC session. Game facts learned along the way: Unreal Engine **5.3.2**
+> (custom `ROD` branch), Denuvo but no anti-cheat, and stock UE4SS cannot
+> pattern-scan this binary — [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+> has the full fix ladder.
 
-## What works / what doesn't (v0.1 expectations)
+## What works / what doesn't
 
 | Feature | Status |
 | --- | --- |
-| Seeing each other move around Aincrad in real time | ✅ core feature |
-| Exploring towns, fields and dungeons together | ✅ |
+| Hosting your world as a co-op session | ✅ verified in-game on the demo |
+| Seeing each other move around Aincrad in real time | ✅ engine-level, needs first two-PC test |
 | Second player gets a body spawned automatically | ✅ automatic fixer + `coop_fixspawns`, spawns next to the host |
-| On-screen session HUD with live ping (ms) | ✅ F10 to toggle; falls back to console if UMG creation fails |
+| On-screen session HUD with live ping (ms) | 🟡 falls back to the UE4SS console on this game (fix in progress); `coop_ping`/`coop_status` always work |
 | Teleport to each other | ✅ `coop_warp` / `coop_goto` (host runs them) |
 | Host's menus don't freeze the partner's world | ✅ pause guard while a partner is connected |
 | NPCs/enemies visible and moving for the joining player | 🟡 forced at runtime, host-authoritative |
@@ -35,8 +36,9 @@ trip (Denuvo anti-tamper does not object to runtime mods like UE4SS).
 | Quest progress, inventory, cutscenes, menus | ❌ stay local to each player |
 | Joining player keeps their own character appearance | ❌ spawns as the default character for now |
 
-Treat v0.1 as "play tourist in each other's Aincrad": the host plays the game,
-the partner is physically present in the same world. Deeper sync is the roadmap.
+Treat v0.1.x as "play tourist in each other's Aincrad": the host plays the
+game, the partner is physically present in the same world. Deeper sync is the
+roadmap.
 
 ## Quick start
 
@@ -46,61 +48,73 @@ Both PCs need their own copy of the game (Steam demo or full release — but
 > **Works on the free demo today.** The demo is the same packaged UE5 build,
 > so you can install the mod and test co-op before the full game releases.
 
-1. **Install** — on each PC, clone/download this repo and run the installer:
+1. **Get the community UE4SS build** — stock UE4SS can't pattern-scan this
+   game's binary ([UE4SS-RE/RE-UE4SS#1283](https://github.com/UE4SS-RE/RE-UE4SS/issues/1283)),
+   but the game's [Nexus Mods community](https://www.nexusmods.com/echoesofaincrad)
+   publishes a "UE4SS" package adapted for it. Download that zip on each PC
+   (free Nexus account).
+
+2. **Install** — on each PC, clone/download this repo and run the installer
+   with that zip. It's a guided setup: it asks whether the PC is the host or
+   the guest, collects the host's IP from the guest, and configures the mod
+   accordingly.
 
    Windows:
 
    ```powershell
-   powershell -ExecutionPolicy Bypass -File tools\install.ps1
+   powershell -ExecutionPolicy Bypass -File tools\install.ps1 -UE4SSZip "<downloaded-ue4ss>.zip"
    ```
 
-   Linux (game runs through Proton; UE4SS injects fine under it):
+   Linux (game runs through Proton; UE4SS injects fine under it — the script
+   prints one required follow-up, a `WINEDLLOVERRIDES` Steam launch option):
 
    ```bash
-   ./tools/install.sh
+   ./tools/install.sh --zip <downloaded-ue4ss>.zip
    ```
 
-   The Linux script prints one required follow-up: a `WINEDLLOVERRIDES`
-   Steam launch option so Proton loads the mod loader.
+   Manual steps in [docs/INSTALL.md](docs/INSTALL.md). Mixed Windows/Linux
+   couples are fine — the network protocol is identical because it's the same
+   game binary on both sides.
 
-   Either script downloads UE4SS, installs it next to the game's executable,
-   and copies the mod in. Manual steps in [docs/INSTALL.md](docs/INSTALL.md).
-   Mixed Windows/Linux couples are fine — the network protocol is identical
-   because it's the same game binary on both sides.
-
-2. **Connect your PCs** — same Wi-Fi/LAN works out of the box. Over the
+3. **Connect your PCs** — same Wi-Fi/LAN works out of the box. Over the
    internet, install [Tailscale](https://tailscale.com) on both PCs (free, no
    port forwarding). Details in [docs/CONNECTING.md](docs/CONNECTING.md).
 
-3. **Play** —
-   - **Host**: launch the game, load into the world, press **F7**.
-   - **Joiner**: put the host's IP into
-     `Mods/AincradTogether/Scripts/config.lua` (`HostAddress`), launch the
-     game, press **F8**. (Or open the console and type `coop_join <ip>`.)
+4. **Play** —
+   - **Host**: launch the game, load into the world, press **F7** (the map
+     reloads once — that's the server starting).
+   - **Guest**: launch, load into the world, wait for the host's go, press
+     **F8**. (Or open the in-game console with **F10** and type
+     `coop_join <ip>`.)
 
 ## Keys and commands
 
 | Key | Console command | What it does |
 | --- | --- | --- |
 | F7 | `coop_host` | Re-open your current map as a co-op session (host) |
-| F8 | `coop_join <ip>` | Join a host |
+| F8 | `coop_join <ip>` | Join a host (refuses on the machine that's hosting) |
 | F9 | `coop_status` | Print a diagnostic report to the UE4SS console |
-| F10 | `coop_hud` | Show/hide the on-screen HUD (players, ping, session time) |
+| F6 | `coop_hud` | Show/hide the on-screen HUD (players, ping, session time) |
 | — | `coop_ping` | Print everyone's ping to the console |
 | — | `coop_warp` | Teleport your partner to you (run on the host) |
 | — | `coop_goto` | Teleport yourself to your partner (run on the host) |
 | — | `coop_fixspawns` | Force-spawn a body for any player stuck invisible |
 | — | `coop_stop` | Leave the session |
 
-Keys are configurable in `Mods/AincradTogether/Scripts/config.lua`.
+**F10** (or `~`) opens the in-game console — that's where the `coop_*`
+commands are typed. Keys are configurable in
+`Mods/AincradTogether/Scripts/config.lua`.
 
 ## Repository layout
 
 ```
 Mods/AincradTogether/Scripts/main.lua    the mod
 Mods/AincradTogether/Scripts/config.lua  user settings (IP, keys, fixer toggles)
-tools/install.ps1                        one-shot installer (Windows)
-tools/install.sh                         one-shot installer (Linux/Proton)
+tools/install.ps1                        guided installer (Windows)
+tools/install.sh                         guided installer (Linux/Proton)
+tools/diagnose.sh                        install health check + repair (Linux)
+ue4ss-config/                            game-specific UE4SS fixes & signature
+                                         templates (see its README)
 docs/                                    install, connecting, troubleshooting,
                                          how it works, roadmap
 ```
@@ -108,8 +122,8 @@ docs/                                    install, connecting, troubleshooting,
 ## Fair-play & legal notes
 
 - Each player needs their own legitimately purchased/installed copy.
-- This repo contains **no game assets or code** — only original Lua/PowerShell
-  and documentation (GPL-3.0, see [LICENSE](LICENSE)).
+- This repo contains **no game assets or code** — only original Lua, shell
+  scripts, and documentation (GPL-3.0, see [LICENSE](LICENSE)).
 - The game has no online mode and no anti-cheat, so there is nobody to cheat
   against; this is purely for private co-op between consenting players.
 - Mods are "use at your own risk" per the usual EULA boilerplate. **Back up

@@ -328,8 +328,8 @@ else
         grep -i 'AincradTogether' "$UE4SS_LOG" | tail -n 20 | sed 's/^/       /'
         VERDICT="UE4SS and the mod are loading. If F7 does nothing: (1) the game window must
 have focus when you press it; (2) you must be loaded INTO the world, not the
-main menu; (3) bypass keybinds entirely by opening the UE4SS console window's
-Lua tab or the in-game console (~ or F10 area keys) and running: coop_host
+main menu; (3) bypass keybinds by opening the in-game console (F10 or ~) and
+typing: coop_host
 If the UE4SS console window never appears but the log exists, the GUI can't
 draw under this Proton setup - the mod still works; check the log for its
 messages after pressing F7."

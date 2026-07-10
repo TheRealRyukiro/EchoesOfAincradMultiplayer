@@ -329,8 +329,9 @@ print(pick(prereleases) or pick(releases))
             break
         fi
     done
-    [[ -n "$PAYLOAD_ROOT" ]] || die "That zip doesn't look like a UE4SS package (no dwmapi.dll / xinput1_3.dll / ue4ss folder inside)."
+    [[ -n "$PAYLOAD_ROOT" ]] || { rm -rf "$EXTRACT_TMP"; die "That zip doesn't look like a UE4SS package (no dwmapi.dll / xinput1_3.dll / ue4ss folder inside)."; }
     cp -a "$PAYLOAD_ROOT/." "$WIN64_DIR/"
+    rm -rf "$EXTRACT_TMP"
     ok "UE4SS extracted next to the game executable."
 else
     step "Skipping UE4SS install (as requested)."
@@ -382,7 +383,10 @@ elif [[ -n "$OLD_FLAT_CONFIG" ]]; then
 fi
 mkdir -p "$MOD_TARGET"
 cp -r "$MOD_SOURCE/." "$MOD_TARGET/"
-[[ -n "$SAVED_CONFIG" ]] && cp "$SAVED_CONFIG" "$MOD_TARGET/Scripts/config.lua"
+if [[ -n "$SAVED_CONFIG" ]]; then
+    cp "$SAVED_CONFIG" "$MOD_TARGET/Scripts/config.lua"
+    rm -f "$SAVED_CONFIG"
+fi
 ok "Mod files copied to $MOD_TARGET"
 
 # Apply the guest's host IP straight into the mod config so nobody has to

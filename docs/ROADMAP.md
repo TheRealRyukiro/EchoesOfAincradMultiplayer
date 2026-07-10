@@ -1,6 +1,6 @@
 # Roadmap
 
-## v0.1 — scaffold (this release)
+## v0.1.x — scaffold + field-testing (current)
 
 Host/join over UE's listen-server networking, automatic pawn spawning for the
 joiner, runtime replication for NPCs, diagnostics (`coop_status`), installer
@@ -12,13 +12,21 @@ v0.1.1 quality-of-life additions: on-screen HUD with live ping/session timer
 (`coop_warp`/`coop_goto`), spawn-at-host, pause guard so the host's menus
 don't freeze the partner, and a map-change watcher with recovery hints.
 
+v0.1.2 field-test fixes (hosting confirmed working on the Steam demo):
+self-join guard, join announcements verified against real network
+connections, and a shared once-per-second object cache replacing the
+per-loop scans that caused hosting lag.
+
 ## v0.2 — tuned to the game
 
-The first play-testing sessions will tell us the game's real class names
-(`coop_status` prints them). Then:
+Field testing already revealed the game's real classes: GameMode
+`BP_RODGameMode_World_C`, player pawn `BP_RODWorldHeroCharacter_C`,
+controller `BP_RODWorldPlayerController_C`, engine branch
+`5.3.2-0+++ROD-App-ONE`. Next:
 
-- Pin the game's pawn/GameMode/PlayerController classes in `main.lua` instead
-  of relying on generic `RestartPlayer` behavior.
+- Pin those classes in `main.lua` instead of relying on generic
+  `RestartPlayer` behavior.
+- Fix the on-screen HUD on this game (currently console fallback).
 - Carry the joiner's character-creator appearance onto their spawned pawn
   (read their save's customization data, apply to the pawn's mesh components).
 - Handle map travel: when the host changes floors, bring the joiner along

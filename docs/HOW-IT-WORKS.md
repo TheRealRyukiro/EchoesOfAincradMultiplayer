@@ -72,7 +72,10 @@ modification but doesn't interfere with this — the exe is never modified.
 Everything runs through `pcall` with validity checks, because game updates
 can rename or restructure classes; a failed call logs and moves on instead of
 crashing the game. UObject work triggered from timers is marshalled to the
-game thread with `ExecuteInGameThread` (UE objects are not thread-safe).
+game thread with `ExecuteInGameThread` (UE objects are not thread-safe). And
+because scanning the engine's object array is expensive in a big open world,
+a once-per-second master tick refreshes a shared controller/PlayerState
+cache that every other loop reads instead of scanning on its own.
 
 ## Why some things don't sync
 
