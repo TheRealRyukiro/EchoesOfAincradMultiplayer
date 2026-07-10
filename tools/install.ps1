@@ -208,62 +208,13 @@ if ($EngineVersion) {
 # ----------------------------------------------------------------------------
 # 2. Install UE4SS
 # ----------------------------------------------------------------------------
-# Never silently downgrade: if a ue4ss\-layout install (experimental or a
-# community package) is already present, a plain run would stomp it with the
-# older stable release.
-if (-not $SkipUE4SS -and -not $Experimental -and -not $UE4SSZip -and (Test-Path (Join-Path $win64Dir 'ue4ss'))) {
-    throw @"
-A ue4ss\-layout UE4SS (experimental or community build) is already installed.
-Refusing to replace it with the older stable release. Pick one:
-  -Experimental     update to the latest experimental build
-  -UE4SSZip <file>  install a specific package (e.g. the game's Nexus UE4SS)
-  -SkipUE4SS        keep the current UE4SS; only update the mod and settings
-"@
-}
-
-if (-not $SkipUE4SS) {
-    Write-Step "Installing UE4SS (the mod loader)..."
-    $zipToExtract = $null
-
-    if ($UE4SSZip) {
-        if (-not (Test-Path $UE4SSZip)) { throw "UE4SS zip not found: $UE4SSZip" }
-        $zipToExtract = $UE4SSZip
-    } else {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        $headers = @{ 'User-Agent' = 'AincradTogether-installer' }
-        $asset = $null
-        if ($Experimental) {
-            Write-Ok "Downloading the UE4SS EXPERIMENTAL build from GitHub (newest engine support)..."
-            $releases = Invoke-RestMethod -Uri 'https://api.github.com/repos/UE4SS-RE/RE-UE4SS/releases?per_page=30' -Headers $headers
-            foreach ($rel in (@($releases | Where-Object { $_.prerelease }) + @($releases))) {
-                $asset = $rel.assets |
-                    Where-Object { $_.name -match '^UE4SS.*\.zip$' -and $_.name -notmatch 'DEV|Dev' } |
-                    Select-Object -First 1
-                if ($asset) { break }
-            }
-        } else {
-            Write-Ok "Downloading the latest UE4SS release from GitHub..."
-            $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/UE4SS-RE/RE-UE4SS/releases/latest' -Headers $headers
-            # Prefer the standard (non-dev) zip, e.g. "UE4SS_v3.0.1.zip".
-            $asset = $release.assets |
-                Where-Object { $_.name -match '^UE4SS_v.*\.zip$' -and $_.name -notmatch 'DEV|Dev' } |
-                Select-Object -First 1
-            if (-not $asset) {
-                $asset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
-            }
-        }
-        if (-not $asset) { throw "Could not find a UE4SS zip on GitHub. Install UE4SS manually (see docs/INSTALL.md) and re-run with -SkipUE4SS." }
-        $zipToExtract = Join-Path $env:TEMP $asset.name
-        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipToExtract `
-            -Headers @{ 'User-Agent' = 'AincradTogether-installer' }
-        Write-Ok "Downloaded $($asset.name) ($([math]::Round($asset.size / 1MB, 1)) MB)"
-    }
-
-    # Extract to a staging dir first and locate the real payload: community
-    # repacks often wrap everything in one or two folders.
-    $tmpExtract = Join-Path $env:TEMP ("ue4ss_extract_" + [IO.Path]::GetRandomFileName())
-    Expand-Archive -Path $zipToExtract -DestinationPath $tmpExtract -Force
-    $payloadRoot = @($tmpExtract) + @(Get-ChildItem -Path $tmpExtract -Directory -Recurse -Depth 2 | ForEach-Object { $_.FullName }) |
+# Extracts a UE4SS package into the game folder, tolerating community
+# repacks that wrap the payload in one or two folders.
+function Install-UE4SSFromZip($zipPath) {
+    if (-not (Test-Path $zipPath)) { throw "UE4SS zip not found: $zipPath" }
+    $staging = Join-Path $env:TEMP ("ue4ss_extract_" + [IO.Path]::GetRandomFileName())
+    Expand-Archive -Path $zipPath -DestinationPath $staging -Force
+    $payloadRoot = @($staging) + @(Get-ChildItem -Path $staging -Directory -Recurse -Depth 2 | ForEach-Object { $_.FullName }) |
         Where-Object {
             (Test-Path (Join-Path $_ 'dwmapi.dll')) -or
             (Test-Path (Join-Path $_ 'xinput1_3.dll')) -or
@@ -271,14 +222,56 @@ if (-not $SkipUE4SS) {
             (Test-Path (Join-Path $_ 'UE4SS.dll'))
         } | Select-Object -First 1
     if (-not $payloadRoot) {
-        Remove-Item -Path $tmpExtract -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path $staging -Recurse -Force -ErrorAction SilentlyContinue
         throw "That zip doesn't look like a UE4SS package (no dwmapi.dll / xinput1_3.dll / ue4ss folder inside)."
     }
     Copy-Item -Path (Join-Path $payloadRoot '*') -Destination $win64Dir -Recurse -Force
-    Remove-Item -Path $tmpExtract -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Ok "UE4SS extracted next to the game executable."
-} else {
+    Remove-Item -Path $staging -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Ok "UE4SS installed next to the game executable."
+}
+
+# UE4SS is already in place when both a proxy DLL and the core DLL exist.
+$ue4ssPresent = ((Test-Path (Join-Path $win64Dir 'dwmapi.dll')) -or (Test-Path (Join-Path $win64Dir 'xinput1_3.dll'))) -and `
+                ((Test-Path (Join-Path $win64Dir 'UE4SS.dll')) -or (Test-Path (Join-Path $win64Dir 'ue4ss\UE4SS.dll')))
+
+if ($SkipUE4SS) {
     Write-Step "Skipping UE4SS install (as requested)."
+} elseif ($UE4SSZip) {
+    Write-Step "Installing UE4SS from $UE4SSZip ..."
+    Install-UE4SSFromZip $UE4SSZip
+} elseif ($Experimental) {
+    Write-Step "Installing UE4SS (EXPERIMENTAL build)..."
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $headers = @{ 'User-Agent' = 'AincradTogether-installer' }
+    $asset = $null
+    $releases = Invoke-RestMethod -Uri 'https://api.github.com/repos/UE4SS-RE/RE-UE4SS/releases?per_page=30' -Headers $headers
+    foreach ($rel in (@($releases | Where-Object { $_.prerelease }) + @($releases))) {
+        $asset = $rel.assets |
+            Where-Object { $_.name -match '^UE4SS.*\.zip$' -and $_.name -notmatch 'DEV|Dev' } |
+            Select-Object -First 1
+        if ($asset) { break }
+    }
+    if (-not $asset) { throw "Could not find a UE4SS zip on GitHub. Download one manually and re-run with -UE4SSZip <file>." }
+    $downloaded = Join-Path $env:TEMP $asset.name
+    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $downloaded -Headers $headers
+    Write-Ok "Downloaded $($asset.name) ($([math]::Round($asset.size / 1MB, 1)) MB)"
+    Install-UE4SSFromZip $downloaded
+} elseif ($ue4ssPresent) {
+    Write-Step "UE4SS is already installed - keeping it."
+    Write-Ok "(replace it explicitly with -UE4SSZip <file> or -Experimental if ever needed)"
+} else {
+    Write-Step "UE4SS (the mod loader) is not installed yet."
+    Write-Host "    Stock UE4SS cannot scan this game's binary; use the community build"
+    Write-Host "    from the game's Nexus Mods page (free account required):"
+    Write-Host "        https://www.nexusmods.com/echoesofaincrad   (search: UE4SS)"
+    if (-not $NoPrompt) {
+        Write-Host "    Download it now, then come back here."
+        $zipInput = (Read-Host "Paste the full path to the downloaded zip (Enter to abort)").Trim().Trim('"').Trim("'")
+        if (-not $zipInput) { throw "Aborted. Re-run this installer once you have the zip." }
+        Install-UE4SSFromZip $zipInput
+    } else {
+        throw "Re-run with -UE4SSZip <that-file> once downloaded (or -Experimental for the stock experimental build)."
+    }
 }
 
 # UE4SS 3.x experimental keeps its files in a "ue4ss" subfolder; 3.0.x and

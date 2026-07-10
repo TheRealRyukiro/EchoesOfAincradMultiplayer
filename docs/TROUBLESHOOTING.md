@@ -167,9 +167,14 @@ dismiss and ignore it. If the game does *not* start:
 
 Network problem, not a mod problem:
 
-- Host must already be hosting (F7) *before* the joiner presses F8.
-- Wrong IP is the #1 cause — re-read [CONNECTING.md](CONNECTING.md). On
-  Tailscale, use the `100.x.y.z` address, not the LAN one.
+- Host must already be hosting (F7) *before* the joiner presses F8 — and
+  must stay running; a host that stutters out or crashes takes the join down
+  with it.
+- Wrong IP is the #1 cause — especially `HostAddress` still at its default
+  `127.0.0.1` (= "connect to myself", which loads forever and lands on the
+  main menu). Check the guest's `config.lua`, or bypass it entirely from the
+  in-game console (F10): `coop_join <the-hosts-ip>`. On Tailscale, use the
+  `100.x.y.z` address, not the LAN one.
 - Firewall on the host: on Windows, allow the game (the *Shipping* exe)
   through Windows Firewall or open inbound **UDP 7777**; on Linux,
   `sudo ufw allow 7777/udp` if you run a firewall.
@@ -186,18 +191,21 @@ host with F7, then check `coop_status` shows `HOSTING` and the map reloaded —
 everything past that genuinely needs the second PC (Steam won't run two
 copies of the game from one account, so there's no single-PC join test).
 
-## The game feels laggier after hosting (F7)
+## The game stutters (once a second) or crashes while hosting
 
-Two sources, one fixable:
-
-- The mod's own background loops used to rescan the engine's object array
-  several times a second — v0.1.2 consolidated this to one scan per second,
-  which should remove most of the hitching. Update if you're on 0.1.1.
-- A listen server genuinely costs something: the game simulates networking
-  authority it never does in single-player. To isolate what's left, toggle
-  these off one at a time in `config.lua`: `ForceReplication` (biggest
-  candidate), `ShowHud`, `KeepWorldRunning`, then re-test with `coop_stop` /
-  F7.
+- Mod versions up to 0.1.2 rescanned the engine's object array on a timer —
+  once per second while hosting — which hitches (and can destabilize) a big
+  open world. **v0.1.3 removed all periodic scanning** (caches are fed by
+  object-construction events); update by re-running the setup script, then
+  confirm the banner says v0.1.3+.
+- A listen server genuinely costs something beyond that: the game simulates
+  networking authority it never does in single-player. To isolate a
+  remaining problem, toggle these off one at a time in `config.lua`:
+  `ForceReplication`, `ShowHud`, `KeepWorldRunning`, then re-test.
+- Still crashing? Grab the game's own crash log from
+  `compatdata/<appid>/pfx/drive_c/users/steamuser/AppData/Local/EchoesofAincrad/Saved/Logs/`
+  (Linux) or `%LOCALAPPDATA%\EchoesofAincrad\Saved\Logs\` (Windows) along
+  with `UE4SS.log`.
 
 ## Joiner connects but is invisible / a floating camera
 

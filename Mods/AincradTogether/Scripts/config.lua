@@ -67,12 +67,16 @@ Config.SpawnAtHost = true
 -- so they don't spawn inside each other.
 Config.WarpOffset = 150
 
--- While hosting, periodically force NPCs/enemies to replicate so the
--- joining player can see them move. Single-player games usually never mark
--- their AI as network-relevant; this flips that switch at runtime.
+-- While hosting, force NPCs/enemies to replicate so the joining player can
+-- see them move. Single-player games usually never mark their AI as
+-- network-relevant; this flips that switch at runtime - once at session
+-- start, then event-driven as new pawns spawn (no periodic scanning).
 -- If the game becomes unstable while hosting, try turning this off first.
 Config.ForceReplication = true
-Config.ReplicationFixIntervalMs = 5000
+
+-- Safety-net sweep for pawns the event path might miss, in milliseconds.
+-- Set to 0 to disable the sweep entirely (event-driven flips still happen).
+Config.ReplicationSweepIntervalMs = 30000
 
 -- Single-player games often pause the world when the host opens a menu or
 -- inventory - which would freeze the partner's game too. While hosting with

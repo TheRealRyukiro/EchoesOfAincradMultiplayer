@@ -17,6 +17,12 @@ self-join guard, join announcements verified against real network
 connections, and a shared once-per-second object cache replacing the
 per-loop scans that caused hosting lag.
 
+v0.1.3: fully event-driven caches (no periodic object scans at all — fixes
+the once-per-second hosting stutter), FText via reflection so the HUD can
+work on the community UE4SS build, F10→F6 HUD keybind auto-remap, installer
+overhaul (guided UE4SS handling, no stock downloads), and one-file setup
+scripts for GitHub Releases.
+
 ## v0.2 — tuned to the game
 
 Field testing already revealed the game's real classes: GameMode
