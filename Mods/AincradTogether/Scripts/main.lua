@@ -27,7 +27,7 @@
 local Config = require("config")
 
 local MOD_NAME = "AincradTogether"
-local MOD_VERSION = "0.1.2"
+local MOD_VERSION = "0.1.3"
 
 -- ----------------------------------------------------------------------------
 -- State
@@ -43,16 +43,23 @@ local State = {
     HudEnabled = true,         -- runtime toggle (ToggleHud key), independent of config
     LastMapPath = nil,         -- for the map-change watcher
     UnpauseLogged = false,     -- log the first auto-unpause per session only
-    PendingJoinChecks = {},    -- new controllers awaiting local/remote verdict
+    RefreshDueAt = nil,        -- os.time() when a one-time post-travel refresh runs
 }
 
--- Object scans (FindAllOf) walk the whole engine object array - expensive in
--- a big open world. The 1s master tick refreshes this cache once; every
--- other loop reads it instead of scanning on its own.
+-- Object scans (FindAllOf) walk the entire engine object array - expensive
+-- enough in a big open world to hitch the game when done on a timer (v0.1.2
+-- scanned once per second: the cause of the periodic stutter while hosting).
+-- v0.1.3 is event-driven instead: UE4SS notifies us when controllers, player
+-- states and pawns are constructed; the master tick only classifies, prunes
+-- and renders. Full scans happen exactly three ways: shortly after a session
+-- starts, after a map change, and on manual console commands.
 local Cache = {
-    LocalPC = nil,     -- last known local PlayerController
-    Remotes = {},      -- remote (network) PlayerControllers
-    PlayerStates = {}, -- all PlayerStates (only refreshed while in a session)
+    LocalPC = nil,           -- last known local PlayerController
+    Remotes = {},            -- remote (network) PlayerControllers
+    PlayerStates = {},       -- event-fed, validity-pruned
+    PendingControllers = {}, -- constructed, awaiting local/remote verdict
+    PendingPawns = {},       -- constructed while hosting, awaiting bReplicates
+    LastScanAt = 0,          -- rate limit for fallback full scans
 }
 
 local Hud = {
@@ -115,9 +122,13 @@ local function IsLocalController(PlayerController)
     return Ok and Result
 end
 
--- One full controller scan; refreshes the shared cache. Called once per
--- master tick and on demand when the cache looks dead.
-local function RefreshControllerCache()
+-- One full controller scan; refreshes the shared cache. Expensive - called
+-- only at session start / map change / manual commands (Force), or as a
+-- rate-limited fallback when the cache is empty.
+local function RefreshControllerCache(Force)
+    local Now = os.time and os.time() or 0
+    if not Force and (Now - Cache.LastScanAt) < 5 then return end
+    Cache.LastScanAt = Now
     Cache.LocalPC = nil
     Cache.Remotes = {}
     local Controllers = FindAllOf("PlayerController")
@@ -210,6 +221,10 @@ local function GetPlayerStateName(PlayerState)
     return "Player"
 end
 
+local function RefreshPlayerStateCache()
+    Cache.PlayerStates = FindAllOf("PlayerState") or {}
+end
+
 -- Returns a list of { Name = string, PingMs = number|nil, IsLocal = bool }
 -- for every player in the session, on host and client alike. Reads the
 -- cached PlayerState list unless FreshScan is set (manual commands).
@@ -224,10 +239,10 @@ local function GetPlayerPingReport(FreshScan)
         end)
     end
 
-    local PlayerStates = Cache.PlayerStates
-    if FreshScan or #PlayerStates == 0 then
-        PlayerStates = FindAllOf("PlayerState") or {}
+    if FreshScan or #Cache.PlayerStates == 0 then
+        RefreshPlayerStateCache()
     end
+    local PlayerStates = Cache.PlayerStates
     for _, PS in ipairs(PlayerStates) do
         if PS:IsValid() then
             local IsLocal = false
@@ -311,11 +326,30 @@ local function HudIsAlive()
     return Hud.Widget and Hud.Widget:IsValid() and Hud.TextBlock and Hud.TextBlock:IsValid()
 end
 
+-- Some UE4SS builds (including the community one for this game) ship without
+-- the Lua FText constructor. The engine can still make an FText for us
+-- through reflection, so try both paths.
+local function MakeText(Str)
+    if type(FText) == "function" then
+        local Ok, Result = pcall(FText, Str)
+        if Ok and Result then return Result end
+    end
+    local KTL = StaticFindObject("/Script/Engine.Default__KismetTextLibrary")
+    if KTL and KTL:IsValid() then
+        local Ok, Result = pcall(function() return KTL:Conv_StringToText(Str) end)
+        if Ok and Result then return Result end
+    end
+    return nil
+end
+
 local function TryCreateHud()
     if Hud.Broken or HudIsAlive() then return HudIsAlive() end
-    if type(FText) ~= "function" then
+    if not MakeText(MOD_NAME) then
         Hud.Broken = true
-        Log("This UE4SS build has no FText constructor; HUD will use the console instead. (Update UE4SS to fix.)")
+        if not Hud.NoTextWarned then
+            Hud.NoTextWarned = true
+            Log("No way to build FText on this UE4SS build; HUD will use the console instead.")
+        end
         return false
     end
 
@@ -344,7 +378,7 @@ local function TryCreateHud()
         WidgetTree.RootWidget = TextBlock
         Widget:AddToViewport(10000)
         pcall(function() Widget:SetVisibility(SLATE_VISIBILITY_SELF_HIT_TEST_INVISIBLE) end)
-        TextBlock:SetText(FText(MOD_NAME))
+        TextBlock:SetText(MakeText(MOD_NAME))
 
         Hud.Widget = Widget
         Hud.TextBlock = TextBlock
@@ -421,7 +455,8 @@ local function UpdateHud()
     if TryCreateHud() then
         pcall(function()
             Hud.Widget:SetVisibility(SLATE_VISIBILITY_SELF_HIT_TEST_INVISIBLE)
-            Hud.TextBlock:SetText(FText(Text))
+            local AsText = MakeText(Text)
+            if AsText then Hud.TextBlock:SetText(AsText) end
         end)
     else
         -- Console fallback: single-line version. Strip the session clock
@@ -504,8 +539,8 @@ end
 -- ----------------------------------------------------------------------------
 
 local function FixMissingPawns(ManualTrigger)
-    -- A manual coop_fixspawns deserves fresher data than the 1s cache.
-    if ManualTrigger then RefreshControllerCache() end
+    -- A manual coop_fixspawns deserves fresh data, not the event-fed cache.
+    if ManualTrigger then RefreshControllerCache(true) end
     local GameMode = GetGameMode()
     if not GameMode then
         if ManualTrigger then
@@ -621,9 +656,13 @@ local function StartHostFixers()
         Verbose("Spawn fixer started (every " .. tostring(Config.SpawnFixIntervalMs or 2000) .. "ms).")
     end
 
-    if Config.ForceReplication and not State.RepFixerRunning then
+    -- Replication is handled event-driven (new pawns are flipped as they
+    -- spawn); this slow sweep is just a safety net for stragglers, and can
+    -- be disabled by setting the interval to 0.
+    local SweepMs = Config.ReplicationSweepIntervalMs or 30000
+    if Config.ForceReplication and SweepMs > 0 and not State.RepFixerRunning then
         State.RepFixerRunning = true
-        LoopAsync(Config.ReplicationFixIntervalMs or 5000, function()
+        LoopAsync(SweepMs, function()
             if not State.Hosting then
                 State.RepFixerRunning = false
                 return true -- stop the loop
@@ -631,7 +670,7 @@ local function StartHostFixers()
             ExecuteInGameThread(ForceWorldReplication)
             return false
         end)
-        Verbose("Replication fixer started (every " .. tostring(Config.ReplicationFixIntervalMs or 5000) .. "ms).")
+        Verbose("Replication safety sweep started (every " .. tostring(SweepMs) .. "ms).")
     end
 
     if Config.KeepWorldRunning and not State.PauseGuardRunning then
@@ -664,11 +703,15 @@ local function HostSession()
     State.Joining = false
     State.SessionStart = os.time and os.time() or nil
     State.UnpauseLogged = false
+    -- The ?listen reload keeps the same map path, so the map-change watcher
+    -- won't fire: schedule the one-time post-travel cache refresh explicitly.
+    State.RefreshDueAt = (os.time and os.time() or 0) + 3
     if RunConsoleCommand("open " .. Map .. "?listen") then
         StartHostFixers()
     else
         State.Hosting = false
         State.SessionStart = nil
+        State.RefreshDueAt = nil
     end
 end
 
@@ -694,6 +737,7 @@ local function JoinSession(Address)
     State.Joining = true
     State.Hosting = false
     State.SessionStart = os.time and os.time() or nil
+    State.RefreshDueAt = (os.time and os.time() or 0) + 5
     RunConsoleCommand("open " .. Address)
 end
 
@@ -768,12 +812,16 @@ local function CheckMapChange()
     State.LastMapPath = Map
 
     -- New world: cached objects are stale, and a HUD that could not be
-    -- built on the previous map deserves another shot here.
+    -- built on the previous map deserves another shot here. Schedule the
+    -- one-time full refresh for once the new world has settled.
     Cache.LocalPC = nil
     Cache.Remotes = {}
     Cache.PlayerStates = {}
+    Cache.PendingControllers = {}
+    Cache.PendingPawns = {}
     Hud.Broken = false
     Hud.Attempts = 0
+    State.RefreshDueAt = (os.time and os.time() or 0) + 2
 
     if not Previous then return end -- first observation, not a change
 
@@ -789,46 +837,96 @@ local function CheckMapChange()
     end
 end
 
--- New controllers get announced only once we can prove they belong to a
--- remote player: at construction time .Player is not assigned yet, and the
--- host's own controller is recreated on every map load (which is what a
--- naive "on new controller" announcement mistakes for a join).
-local function ProcessPendingJoinChecks()
-    if #State.PendingJoinChecks == 0 then return end
-    if not State.Hosting then
-        State.PendingJoinChecks = {}
-        return
+-- Keeps only valid, unique objects (a construction event and a full scan
+-- can both insert the same object).
+local function PruneObjectList(List)
+    local Alive, Seen = {}, {}
+    for _, Obj in ipairs(List) do
+        pcall(function()
+            if Obj:IsValid() then
+                local Name = Obj:GetFullName()
+                if not Seen[Name] then
+                    Seen[Name] = true
+                    table.insert(Alive, Obj)
+                end
+            end
+        end)
     end
+    return Alive
+end
+
+-- New controllers get classified once their .Player resolves: local ones
+-- refresh the cached local controller (recreated on every map load), remote
+-- ones enter the cache and - while hosting - get announced as a real join.
+local function ProcessPendingControllers()
+    if #Cache.PendingControllers == 0 then return end
     local Remaining = {}
-    for _, Entry in ipairs(State.PendingJoinChecks) do
+    for _, Entry in ipairs(Cache.PendingControllers) do
         Entry.Ticks = Entry.Ticks + 1
         local PC = Entry.PC
         local Ok, Classified = pcall(function()
             if not PC:IsValid() then return true end -- died before classification
             local Player = PC.Player
             if not (Player and Player:IsValid()) then return false end -- not classified yet
-            if not IsLocalController(PC) then
-                Log("A player joined! Controller: " .. PC:GetFullName())
-                Log("If they seem invisible, give the spawn fixer a couple of seconds, or run 'coop_fixspawns'.")
+            if IsLocalController(PC) then
+                Cache.LocalPC = PC
+            else
+                table.insert(Cache.Remotes, PC)
+                if State.Hosting then
+                    Log("A player joined! Controller: " .. PC:GetFullName())
+                    Log("If they seem invisible, give the spawn fixer a couple of seconds, or run 'coop_fixspawns'.")
+                end
             end
             return true
         end)
         local Done = (Ok and Classified) or Entry.Ticks > 10
         if not Done then table.insert(Remaining, Entry) end
     end
-    State.PendingJoinChecks = Remaining
+    Cache.PendingControllers = Remaining
+end
+
+-- Pawns spawned while hosting get their replication flag flipped one tick
+-- after construction (flipping during construction is too early).
+local function ProcessPendingPawns()
+    if #Cache.PendingPawns == 0 then return end
+    if not State.Hosting then
+        Cache.PendingPawns = {}
+        return
+    end
+    local Flipped = 0
+    for _, Pawn in ipairs(Cache.PendingPawns) do
+        pcall(function()
+            if Pawn:IsValid() and not Pawn.bReplicates then
+                Pawn:SetReplicates(true)
+                Pawn:SetReplicateMovement(true)
+                Flipped = Flipped + 1
+            end
+        end)
+    end
+    Cache.PendingPawns = {}
+    if Flipped > 0 then
+        Verbose("Enabled replication on " .. Flipped .. " newly spawned pawn(s).")
+    end
 end
 
 LoopAsync(Config.HudIntervalMs or 1000, function()
     ExecuteInGameThread(function()
-        -- One scan pass per tick; every other loop reads the cache.
-        pcall(RefreshControllerCache)
-        if State.Hosting or State.Joining then
-            pcall(function() Cache.PlayerStates = FindAllOf("PlayerState") or {} end)
-        elseif #Cache.PlayerStates > 0 then
-            Cache.PlayerStates = {}
+        -- No object scans here - just classify, prune, render, watch.
+        local Now = os.time and os.time() or 0
+        pcall(function()
+            Cache.Remotes = PruneObjectList(Cache.Remotes)
+            Cache.PlayerStates = PruneObjectList(Cache.PlayerStates)
+            if Cache.LocalPC and not Cache.LocalPC:IsValid() then Cache.LocalPC = nil end
+        end)
+        if State.RefreshDueAt and Now >= State.RefreshDueAt then
+            -- The one-time post-travel full refresh (session start/map load).
+            State.RefreshDueAt = nil
+            pcall(function() RefreshControllerCache(true) end)
+            if State.Hosting or State.Joining then pcall(RefreshPlayerStateCache) end
+            if State.Hosting and Config.ForceReplication then pcall(ForceWorldReplication) end
         end
-        pcall(ProcessPendingJoinChecks)
+        pcall(ProcessPendingControllers)
+        pcall(ProcessPendingPawns)
         pcall(UpdateHud)
         pcall(CheckMapChange)
     end)
@@ -855,7 +953,16 @@ end
 BindKey(Config.Keybinds.Host, HostSession, "Host session")
 BindKey(Config.Keybinds.Join, function() JoinSession(nil) end, "Join session")
 BindKey(Config.Keybinds.Status, PrintStatus, "Print status")
-BindKey(Config.Keybinds.ToggleHud, ToggleHud, "Toggle HUD")
+
+-- F10 opens the in-game console (UE4SS ConsoleEnabler), so binding the HUD
+-- there - as old config.lua versions did - collides with it. Auto-remap.
+local HudKeyName = Config.Keybinds.ToggleHud
+if HudKeyName == "F10" then
+    Log("config.lua binds the HUD toggle to F10, which opens the in-game console - using F6 instead.")
+    Log("(Edit Config.Keybinds.ToggleHud in config.lua to silence this.)")
+    HudKeyName = "F6"
+end
+BindKey(HudKeyName, ToggleHud, "Toggle HUD")
 
 local SimpleCommands = {
     coop_host      = HostSession,
@@ -892,12 +999,19 @@ RegisterConsoleCommandHandler("coop_join", function(_FullCommand, Parameters, Ar
     return true
 end)
 
--- Queue new controllers for the join announcer; the master tick verifies
--- they're genuinely remote before saying anything (the host's own
--- controller is recreated on every map load).
+-- Event-driven cache feeds: UE4SS tells us when relevant objects are
+-- constructed, so nothing needs to scan the object array on a timer.
 NotifyOnNewObject("/Script/Engine.PlayerController", function(NewController)
-    if State.Hosting then
-        table.insert(State.PendingJoinChecks, { PC = NewController, Ticks = 0 })
+    table.insert(Cache.PendingControllers, { PC = NewController, Ticks = 0 })
+end)
+
+NotifyOnNewObject("/Script/Engine.PlayerState", function(NewPlayerState)
+    table.insert(Cache.PlayerStates, NewPlayerState)
+end)
+
+NotifyOnNewObject("/Script/Engine.Pawn", function(NewPawn)
+    if State.Hosting and Config.ForceReplication then
+        table.insert(Cache.PendingPawns, NewPawn)
     end
 end)
 
@@ -909,7 +1023,7 @@ Log(MOD_NAME .. " v" .. MOD_VERSION .. " loaded.")
 Log("Keys: " .. tostring(Config.Keybinds.Host) .. "=Host  " ..
     tostring(Config.Keybinds.Join) .. "=Join  " ..
     tostring(Config.Keybinds.Status) .. "=Status  " ..
-    tostring(Config.Keybinds.ToggleHud) .. "=HUD on/off")
+    tostring(HudKeyName) .. "=HUD on/off")
 Log("Console commands: coop_host, coop_join <ip>, coop_stop, coop_status, coop_ping,")
 Log("                  coop_hud, coop_warp (partner->you), coop_goto (you->partner), coop_fixspawns")
 Log("Default join address (config.lua): " .. tostring(Config.HostAddress) .. ":" .. tostring(Config.Port))

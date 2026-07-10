@@ -48,39 +48,39 @@ Both PCs need their own copy of the game (Steam demo or full release — but
 > **Works on the free demo today.** The demo is the same packaged UE5 build,
 > so you can install the mod and test co-op before the full game releases.
 
-1. **Get the community UE4SS build** — stock UE4SS can't pattern-scan this
-   game's binary ([UE4SS-RE/RE-UE4SS#1283](https://github.com/UE4SS-RE/RE-UE4SS/issues/1283)),
-   but the game's [Nexus Mods community](https://www.nexusmods.com/echoesofaincrad)
-   publishes a "UE4SS" package adapted for it. Download that zip on each PC
-   (free Nexus account).
-
-2. **Install** — on each PC, clone/download this repo and run the installer
-   with that zip. It's a guided setup: it asks whether the PC is the host or
-   the guest, collects the host's IP from the guest, and configures the mod
-   accordingly.
+1. **Install** — grab the one setup file for your OS from the
+   [Releases page](https://github.com/TheRealRyukiro/EchoesOfAincradMultiplayer/releases)
+   and run it. It fetches the newest mod version by itself, keeps what's
+   already installed, and guides you through everything — including the
+   UE4SS mod loader (this game needs the community build from
+   [Nexus Mods](https://www.nexusmods.com/echoesofaincrad); the script tells
+   you exactly when and how) and the host/guest questions. Re-run the same
+   file any time to update.
 
    Windows:
 
    ```powershell
-   powershell -ExecutionPolicy Bypass -File tools\install.ps1 -UE4SSZip "<downloaded-ue4ss>.zip"
+   powershell -ExecutionPolicy Bypass -File AincradTogether-Setup.ps1
    ```
 
-   Linux (game runs through Proton; UE4SS injects fine under it — the script
-   prints one required follow-up, a `WINEDLLOVERRIDES` Steam launch option):
+   Linux (game runs through Proton; the script prints the one required
+   `WINEDLLOVERRIDES` Steam launch option):
 
    ```bash
-   ./tools/install.sh --zip <downloaded-ue4ss>.zip
+   bash aincrad-together-setup.sh
    ```
 
-   Manual steps in [docs/INSTALL.md](docs/INSTALL.md). Mixed Windows/Linux
-   couples are fine — the network protocol is identical because it's the same
-   game binary on both sides.
+   Working from a clone instead? `tools/install.ps1` / `tools/install.sh`
+   are the same guided installer. Manual steps in
+   [docs/INSTALL.md](docs/INSTALL.md). Mixed Windows/Linux couples are fine —
+   the network protocol is identical because it's the same game binary on
+   both sides.
 
-3. **Connect your PCs** — same Wi-Fi/LAN works out of the box. Over the
+2. **Connect your PCs** — same Wi-Fi/LAN works out of the box. Over the
    internet, install [Tailscale](https://tailscale.com) on both PCs (free, no
    port forwarding). Details in [docs/CONNECTING.md](docs/CONNECTING.md).
 
-4. **Play** —
+3. **Play** —
    - **Host**: launch the game, load into the world, press **F7** (the map
      reloads once — that's the server starting).
    - **Guest**: launch, load into the world, wait for the host's go, press

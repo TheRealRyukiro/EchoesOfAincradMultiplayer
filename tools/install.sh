@@ -6,11 +6,13 @@
 # injects into it the same way it does on Windows. This script installs
 # UE4SS + the mod into your Steam copy of Echoes of Aincrad (demo or full).
 #
-#   ./tools/install.sh                        # auto-detect the game
-#   ./tools/install.sh --experimental         # use UE4SS experimental build
-#                                             # (needed while the game's UE5
-#                                             # version is newer than the
-#                                             # stable UE4SS release)
+#   ./tools/install.sh                        # guided setup: finds the game,
+#                                             # keeps an existing UE4SS or
+#                                             # walks you through getting the
+#                                             # community build, installs the
+#                                             # mod, asks host/guest
+#   ./tools/install.sh --experimental         # replace UE4SS with the stock
+#                                             # experimental build
 #   ./tools/install.sh --game-path <folder>   # point at the game manually
 #   ./tools/install.sh --zip <file.zip>       # install a specific UE4SS
 #                                             # package, e.g. the community
@@ -249,31 +251,35 @@ fi
 # ----------------------------------------------------------------------------
 # 3. Install UE4SS
 # ----------------------------------------------------------------------------
-# Never silently downgrade: if a ue4ss/-layout install (experimental or a
-# community package) is already present, a plain run would stomp it with the
-# older stable release.
-if [[ "$SKIP_UE4SS" -eq 0 && "$EXPERIMENTAL" -eq 0 && -z "$UE4SS_ZIP" && -d "$WIN64_DIR/ue4ss" ]]; then
-    die "A ue4ss/-layout UE4SS (experimental or community build) is already installed.
-Refusing to replace it with the older stable release. Pick one:
-  --experimental    update to the latest experimental build
-  --zip <file>      install a specific package (e.g. the game's Nexus UE4SS)
-  --skip-ue4ss      keep the current UE4SS; only update the mod and settings"
-fi
+# Extracts a UE4SS package into the game folder, tolerating community
+# repacks that wrap the payload in one or two folders.
+install_ue4ss_from_zip() {
+    local Zip="$1"
+    [[ -f "$Zip" ]] || die "UE4SS zip not found: $Zip"
+    local Staging
+    Staging="$(mktemp -d)"
+    unzip -o -q "$Zip" -d "$Staging"
+    local Payload=""
+    local cand
+    for cand in "$Staging" "$Staging"/*/ "$Staging"/*/*/; do
+        [[ -d "$cand" ]] || continue
+        if [[ -e "$cand/dwmapi.dll" || -e "$cand/xinput1_3.dll" || -d "$cand/ue4ss" || -e "$cand/UE4SS.dll" ]]; then
+            Payload="$cand"
+            break
+        fi
+    done
+    [[ -n "$Payload" ]] || { rm -rf "$Staging"; die "That zip doesn't look like a UE4SS package (no dwmapi.dll / xinput1_3.dll / ue4ss folder inside)."; }
+    cp -a "$Payload/." "$WIN64_DIR/"
+    rm -rf "$Staging"
+    ok "UE4SS installed next to the game executable."
+}
 
-if [[ "$SKIP_UE4SS" -eq 0 ]]; then
-    if [[ "$EXPERIMENTAL" -eq 1 ]]; then
-        step "Installing UE4SS (EXPERIMENTAL build - newest engine support)..."
-    else
-        step "Installing UE4SS (the mod loader)..."
-    fi
-    ZIP_TO_EXTRACT="$UE4SS_ZIP"
-    if [[ -z "$ZIP_TO_EXTRACT" ]]; then
-        ok "Downloading UE4SS from GitHub..."
-        ASSET_URL=""
-        if [[ "$EXPERIMENTAL" -eq 1 ]]; then
-            RELEASES_JSON="$(curl -fsSL -H "$UA" 'https://api.github.com/repos/UE4SS-RE/RE-UE4SS/releases?per_page=30')"
-            if command -v python3 >/dev/null; then
-                ASSET_URL="$(printf '%s' "$RELEASES_JSON" | python3 -c '
+download_experimental_ue4ss() {
+    ok "Downloading the UE4SS EXPERIMENTAL build from GitHub..."
+    local ReleasesJson AssetUrl
+    ReleasesJson="$(curl -fsSL -H "$UA" 'https://api.github.com/repos/UE4SS-RE/RE-UE4SS/releases?per_page=30')"
+    if command -v python3 >/dev/null; then
+        AssetUrl="$(printf '%s' "$ReleasesJson" | python3 -c '
 import json
 import sys
 
@@ -290,51 +296,58 @@ def pick(rels):
 prereleases = [r for r in releases if r.get("prerelease")]
 print(pick(prereleases) or pick(releases))
 ')"
-            else
-                # Fallback: experimental release tags contain "experimental"
-                # in the download URL path.
-                ASSET_URL="$(printf '%s' "$RELEASES_JSON" \
-                    | grep -oE '"browser_download_url"[[:space:]]*:[[:space:]]*"[^"]+"' \
-                    | cut -d'"' -f4 \
-                    | grep -i 'experimental' \
-                    | grep -E '/UE4SS[^/]*\.zip$' \
-                    | grep -viE 'dev' \
-                    | head -n 1)"
-            fi
-        else
-            API_JSON="$(curl -fsSL -H "$UA" \
-                https://api.github.com/repos/UE4SS-RE/RE-UE4SS/releases/latest)"
-            ASSET_URL="$(printf '%s' "$API_JSON" \
-                | grep -oE '"browser_download_url"[[:space:]]*:[[:space:]]*"[^"]+"' \
-                | cut -d'"' -f4 \
-                | grep -E '/UE4SS_v[^/]*\.zip$' \
-                | grep -viE 'dev' \
-                | head -n 1)"
-        fi
-        [[ -n "$ASSET_URL" ]] || die "Could not find a UE4SS zip on GitHub. Download one manually from https://github.com/UE4SS-RE/RE-UE4SS/releases and re-run with --zip <file>"
-        ZIP_TO_EXTRACT="$(mktemp -d)/$(basename "$ASSET_URL")"
-        curl -fL -H "$UA" -o "$ZIP_TO_EXTRACT" "$ASSET_URL"
-        ok "Downloaded $(basename "$ZIP_TO_EXTRACT")"
+    else
+        # Fallback: experimental release tags contain "experimental" in the
+        # download URL path.
+        AssetUrl="$(printf '%s' "$ReleasesJson" \
+            | grep -oE '"browser_download_url"[[:space:]]*:[[:space:]]*"[^"]+"' \
+            | cut -d'"' -f4 \
+            | grep -i 'experimental' \
+            | grep -E '/UE4SS[^/]*\.zip$' \
+            | grep -viE 'dev' \
+            | head -n 1)"
     fi
-    [[ -f "$ZIP_TO_EXTRACT" ]] || die "UE4SS zip not found: $ZIP_TO_EXTRACT"
-    # Extract to a staging dir first and locate the real payload: community
-    # repacks often wrap everything in one or two folders.
-    EXTRACT_TMP="$(mktemp -d)"
-    unzip -o -q "$ZIP_TO_EXTRACT" -d "$EXTRACT_TMP"
-    PAYLOAD_ROOT=""
-    for cand in "$EXTRACT_TMP" "$EXTRACT_TMP"/*/ "$EXTRACT_TMP"/*/*/; do
-        [[ -d "$cand" ]] || continue
-        if [[ -e "$cand/dwmapi.dll" || -e "$cand/xinput1_3.dll" || -d "$cand/ue4ss" || -e "$cand/UE4SS.dll" ]]; then
-            PAYLOAD_ROOT="$cand"
-            break
-        fi
-    done
-    [[ -n "$PAYLOAD_ROOT" ]] || { rm -rf "$EXTRACT_TMP"; die "That zip doesn't look like a UE4SS package (no dwmapi.dll / xinput1_3.dll / ue4ss folder inside)."; }
-    cp -a "$PAYLOAD_ROOT/." "$WIN64_DIR/"
-    rm -rf "$EXTRACT_TMP"
-    ok "UE4SS extracted next to the game executable."
-else
+    [[ -n "$AssetUrl" ]] || die "Could not find a UE4SS zip on GitHub. Download one manually and re-run with --zip <file>"
+    DOWNLOADED_ZIP="$(mktemp -d)/$(basename "$AssetUrl")"
+    curl -fL -H "$UA" -o "$DOWNLOADED_ZIP" "$AssetUrl"
+    ok "Downloaded $(basename "$DOWNLOADED_ZIP")"
+}
+
+# UE4SS is already in place when both a proxy DLL and the core DLL exist.
+UE4SS_PRESENT=0
+if [[ -f "$WIN64_DIR/dwmapi.dll" || -f "$WIN64_DIR/xinput1_3.dll" ]] \
+        && [[ -f "$WIN64_DIR/UE4SS.dll" || -f "$WIN64_DIR/ue4ss/UE4SS.dll" ]]; then
+    UE4SS_PRESENT=1
+fi
+
+if [[ "$SKIP_UE4SS" -eq 1 ]]; then
     step "Skipping UE4SS install (as requested)."
+elif [[ -n "$UE4SS_ZIP" ]]; then
+    step "Installing UE4SS from $UE4SS_ZIP ..."
+    install_ue4ss_from_zip "$UE4SS_ZIP"
+elif [[ "$EXPERIMENTAL" -eq 1 ]]; then
+    step "Installing UE4SS (EXPERIMENTAL build)..."
+    download_experimental_ue4ss
+    install_ue4ss_from_zip "$DOWNLOADED_ZIP"
+elif [[ "$UE4SS_PRESENT" -eq 1 ]]; then
+    step "UE4SS is already installed - keeping it."
+    ok "(replace it explicitly with --zip <file> or --experimental if ever needed)"
+else
+    step "UE4SS (the mod loader) is not installed yet."
+    echo "    Stock UE4SS cannot scan this game's binary; use the community build"
+    echo "    from the game's Nexus Mods page (free account required):"
+    echo "        https://www.nexusmods.com/echoesofaincrad   (search: UE4SS)"
+    if [[ "$NO_PROMPT" -eq 0 && -t 0 ]]; then
+        echo "    Download it now, then come back here."
+        read -r -p "Paste the full path to the downloaded zip (Enter to abort): " ZIP_INPUT
+        # Strip surrounding quotes that file managers love to add.
+        ZIP_INPUT="${ZIP_INPUT%\"}"; ZIP_INPUT="${ZIP_INPUT#\"}"
+        ZIP_INPUT="${ZIP_INPUT%\'}"; ZIP_INPUT="${ZIP_INPUT#\'}"
+        [[ -n "$ZIP_INPUT" ]] || die "Aborted. Re-run this installer once you have the zip."
+        install_ue4ss_from_zip "$ZIP_INPUT"
+    else
+        die "Re-run with --zip <that-file> once downloaded (or --experimental for the stock experimental build)."
+    fi
 fi
 
 # UE4SS 3.x experimental keeps its files in a "ue4ss" subfolder; 3.0.x and

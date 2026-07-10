@@ -43,12 +43,13 @@ modification but doesn't interfere with this — the exe is never modified.
    `RestartPlayer` runs the game's own spawn logic (default pawn class,
    PlayerStart selection), so whatever the game considers "a player body" is
    what appears.
-4. **Replication fixer** (host, every 5 s): actors only replicate if
-   `bReplicates` is set, and a single-player game has no reason to set it on
-   its NPCs — so without help, the joiner sees an empty world. The fixer calls
-   `SetReplicates(true)` + `SetReplicateMovement(true)` on every `APawn` that
-   doesn't have it yet. Host-authoritative: NPCs think and move on the host,
-   the joiner sees mirrored transforms.
+4. **Replication fixer** (host): actors only replicate if `bReplicates` is
+   set, and a single-player game has no reason to set it on its NPCs — so
+   without help, the joiner sees an empty world. The fixer calls
+   `SetReplicates(true)` + `SetReplicateMovement(true)` on every `APawn`:
+   once as a sweep at session start, then event-driven as new pawns spawn
+   (plus an optional 30 s safety sweep). Host-authoritative: NPCs think and
+   move on the host, the joiner sees mirrored transforms.
 5. **Pause guard** (host, every 300 ms): single-player games pause the world
    for menus; on a listen server that freezes the partner too. While a
    partner is connected, `IsGamePaused` → `SetGamePaused(false)` vetoes it.
@@ -74,8 +75,9 @@ can rename or restructure classes; a failed call logs and moves on instead of
 crashing the game. UObject work triggered from timers is marshalled to the
 game thread with `ExecuteInGameThread` (UE objects are not thread-safe). And
 because scanning the engine's object array is expensive in a big open world,
-a once-per-second master tick refreshes a shared controller/PlayerState
-cache that every other loop reads instead of scanning on its own.
+the mod never scans on a timer: UE4SS's object-construction notifications
+feed shared caches, and full scans happen only at session start, on map
+change, and for manual console commands.
 
 ## Why some things don't sync
 
