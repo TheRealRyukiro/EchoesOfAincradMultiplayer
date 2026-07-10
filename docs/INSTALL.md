@@ -54,11 +54,13 @@ Re-running the script later **updates the mod without overwriting your
    `<ProjectName>\Binaries\Win64\` and contains
    `<ProjectName>-Win64-Shipping.exe`. (The exe in the top folder is just a
    launcher — UE4SS must sit next to the *Shipping* exe.)
-2. **Install UE4SS.** Download the latest `UE4SS_v*.zip` (not the zDEV one)
-   from the [UE4SS releases page](https://github.com/UE4SS-RE/RE-UE4SS/releases)
-   and extract it into that `Win64` folder. If the game is on a very new UE5
-   version and UE4SS fails to start, try the latest *experimental* release
-   instead — it tracks new engine versions faster.
+2. **Install UE4SS.** For this game, use the community "UE4SS" package from
+   the game's [Nexus Mods page](https://www.nexusmods.com/echoesofaincrad) —
+   stock UE4SS builds (stable *and* experimental) currently fail to
+   pattern-scan this binary
+   ([details](TROUBLESHOOTING.md#console-appears-but-the-log-shows-ps-scan-failed--fatal-error-ps-scan-timed-out)).
+   Extract it so `dwmapi.dll` (and its `ue4ss` folder, if the package has
+   one) land in that `Win64` folder, next to the Shipping exe.
 3. **Install the mod.** Copy this repo's `Mods\AincradTogether` folder into
    the UE4SS mods folder:
    - UE4SS 3.x layout: `Win64\ue4ss\Mods\`
@@ -118,8 +120,8 @@ Launch the game through Steam. A separate "UE4SS" console window should appear
 and, among its startup text, print:
 
 ```
-[AincradTogether] AincradTogether v0.1.0 loaded.
-[AincradTogether] Keys: F7=Host  F8=Join  F9=Status
+[AincradTogether] AincradTogether v0.1.2 loaded.
+[AincradTogether] Keys: F7=Host  F8=Join  F9=Status  F6=HUD on/off
 ```
 
 If the window doesn't appear or the message is missing, head to

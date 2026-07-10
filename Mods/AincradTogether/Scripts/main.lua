@@ -40,7 +40,7 @@ local State = {
     RepFixerRunning = false,   -- the replication fixer loop is alive
     PauseGuardRunning = false, -- the anti-pause loop is alive
     SessionStart = nil,        -- os.time() when hosting/joining began
-    HudEnabled = true,         -- runtime toggle (F10), independent of config
+    HudEnabled = true,         -- runtime toggle (ToggleHud key), independent of config
     LastMapPath = nil,         -- for the map-change watcher
     UnpauseLogged = false,     -- log the first auto-unpause per session only
     PendingJoinChecks = {},    -- new controllers awaiting local/remote verdict
@@ -504,6 +504,8 @@ end
 -- ----------------------------------------------------------------------------
 
 local function FixMissingPawns(ManualTrigger)
+    -- A manual coop_fixspawns deserves fresher data than the 1s cache.
+    if ManualTrigger then RefreshControllerCache() end
     local GameMode = GetGameMode()
     if not GameMode then
         if ManualTrigger then

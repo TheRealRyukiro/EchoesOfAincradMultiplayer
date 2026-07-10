@@ -47,8 +47,9 @@ With the game running and the host already hosting (they pressed F7 *after*
 loading into the world):
 
 - press **F8**, or
-- open the UE4SS console and run `coop_join 100.64.12.34` (any address you
-  type here overrides `config.lua`).
+- open the in-game console (**F10** or `~`) and type
+  `coop_join 100.64.12.34` (any address you type here overrides
+  `config.lua`).
 
 The joiner's screen should load into the host's map. Give it a few seconds;
 the host's console will print `A player joined!` when the connection lands,

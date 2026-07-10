@@ -102,12 +102,12 @@ values.
 
 **What goes in it:** the override tells UE4SS which Unreal Engine version the
 game uses when its own detection fails. It's two whole numbers — major and
-minor, **no patch digit** (an engine version of "5.6.1" still means `6`):
+minor, **no patch digit** (this game's engine "5.3.2" means `3`):
 
 ```ini
 [EngineVersionOverride]
 MajorVersion = 5
-MinorVersion = 6
+MinorVersion = 3
 ```
 
 If the section doesn't exist, add it anywhere in the file (stable 3.0.x ships
@@ -118,8 +118,8 @@ it with blank values — fill them in).
 | Command | What it does |
 | --- | --- |
 | `./tools/install.sh` / `install.ps1` | reads the version out of the game exe, writes the override during install |
-| `./tools/install.sh --engine-version 5.6` (Windows: `-EngineVersion 5.6`) | forces a version you provide, for when the exe can't be read |
-| `./tools/diagnose.sh --set-engine-version auto` (or an explicit `5.6`) | writes the override into an **existing** install — no reinstall, no download |
+| `./tools/install.sh --engine-version 5.3` (Windows: `-EngineVersion 5.3`) | forces a version you provide, for when the exe can't be read |
+| `./tools/diagnose.sh --set-engine-version auto` (or an explicit `5.3`) | writes the override into an **existing** install — no reinstall, no download |
 
 ## Isn't there an injector that already supports the newest UE5?
 
@@ -156,9 +156,10 @@ dismiss and ignore it. If the game does *not* start:
 ## Pressing F7/F8 does nothing
 
 - The keybinds only fire while the game (or the UE4SS console) has focus.
-- Some games eat function keys; use the console instead: `coop_host`,
-  `coop_join <ip>`. If the UE console (`~`) doesn't open, type commands into
-  the UE4SS GUI console window.
+- Some games eat function keys; bypass them with the in-game console
+  (**F10** or `~`): type `coop_host`, `coop_join <ip>`, etc. Note the
+  separate UE4SS log window only *displays* output — commands are typed in
+  the in-game console.
 - "Cannot host: no map loaded yet" — you pressed Host while still in the main
   menu. Load into the world first.
 
@@ -223,7 +224,7 @@ This is the "no pawn" state the spawn fixer exists for:
 ## No HUD appears on screen / where's the ping display?
 
 - The HUD only shows **while in a session** (hosting or joined) — it hides
-  itself in single-player. Press F10 (`coop_hud`) in case it was toggled off.
+  itself in single-player. Press F6 (`coop_hud`) in case it was toggled off.
 - Ping is measured by the engine itself (PlayerState) and replicates to both
   sides: the joiner sees their round-trip to the host; the host sees the
   joiner's. The host's own ping reading ~0 is correct, not a bug.
