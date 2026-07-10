@@ -13,6 +13,12 @@ does the heavy lifting. The mod is a Lua script loaded by
 no game files are redistributed, and there is no anti-cheat in this game to
 trip (Denuvo anti-tamper does not object to runtime mods like UE4SS).
 
+> **Disclaimer:** this is a project I'm tackling as a **beginner in game
+> modding**, with the assistance of Claude (Anthropic's AI). I'm learning as
+> I go — expect rough edges, and don't take this repo as expert reference
+> material. Bug reports, corrections, and contributions from experienced
+> modders are very welcome.
+
 > **Status: v0.1.2 — hosting verified on the Steam demo.** The mod loads and
 > F7 confirmed brings up a real listen server in-game (via the community
 > UE4SS build — see the install note below). The join half awaits its first
