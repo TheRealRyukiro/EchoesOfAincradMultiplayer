@@ -51,11 +51,11 @@ Both PCs need their own copy of the game (Steam demo or full release — but
 1. **Install** — grab the one setup file for your OS from the
    [Releases page](https://github.com/TheRealRyukiro/EchoesOfAincradMultiplayer/releases)
    and run it. It fetches the newest mod version by itself, keeps what's
-   already installed, and guides you through everything — including the
-   UE4SS mod loader (this game needs the community build from
-   [Nexus Mods](https://www.nexusmods.com/echoesofaincrad); the script tells
-   you exactly when and how) and the host/guest questions. Re-run the same
-   file any time to update.
+   already installed, and guides you through everything: the UE4SS mod
+   loader (a game-ready build is **bundled** — `UE4SS_5_3_2.zip` — and
+   installed automatically when missing), the mod, and the host/guest
+   questions. No parameters, nothing else to download. Re-run the same file
+   any time to update.
 
    Windows:
 

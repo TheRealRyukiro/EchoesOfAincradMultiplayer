@@ -27,7 +27,7 @@
 local Config = require("config")
 
 local MOD_NAME = "AincradTogether"
-local MOD_VERSION = "0.1.3"
+local MOD_VERSION = "0.1.4"
 
 -- ----------------------------------------------------------------------------
 -- State

@@ -9,13 +9,15 @@ Without them UE4SS aborts before running any mods
 
 ## The two ways out
 
-1. **Community UE4SS package (preferred).** The game's modding community
-   publishes an adapted UE4SS on the game's Nexus Mods page
-   (<https://www.nexusmods.com/echoesofaincrad> → search "UE4SS"). Download
-   it and install with:
+1. **Community UE4SS package (preferred — bundled).** The game's modding
+   community publishes an adapted UE4SS on the game's Nexus Mods page
+   (<https://www.nexusmods.com/echoesofaincrad> → search "UE4SS"); a copy is
+   committed at the repo root as `UE4SS_5_3_2.zip` and the installers deploy
+   it automatically whenever UE4SS is missing. To force-replace an existing
+   install with it:
 
    ```bash
-   ./tools/install.sh --zip ~/Downloads/<that-package>.zip
+   ./tools/install.sh --zip UE4SS_5_3_2.zip
    ```
 
    The installer finds the payload inside the zip regardless of folder

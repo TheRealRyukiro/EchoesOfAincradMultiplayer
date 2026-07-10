@@ -334,10 +334,20 @@ elif [[ "$UE4SS_PRESENT" -eq 1 ]]; then
     ok "(replace it explicitly with --zip <file> or --experimental if ever needed)"
 else
     step "UE4SS (the mod loader) is not installed yet."
-    echo "    Stock UE4SS cannot scan this game's binary; use the community build"
-    echo "    from the game's Nexus Mods page (free account required):"
-    echo "        https://www.nexusmods.com/echoesofaincrad   (search: UE4SS)"
-    if [[ "$NO_PROMPT" -eq 0 && -t 0 ]]; then
+    # A game-ready UE4SS build ships with this repo/download, so the normal
+    # path needs no extra downloads and no questions.
+    BUNDLED_ZIP=""
+    for cand in "$REPO_ROOT/UE4SS_5_3_2.zip" "$REPO_ROOT"/UE4SS*.zip; do
+        if [[ -f "$cand" ]]; then BUNDLED_ZIP="$cand"; break; fi
+    done
+    if [[ -n "$BUNDLED_ZIP" ]]; then
+        ok "Installing the UE4SS build bundled with this download: $(basename "$BUNDLED_ZIP")"
+        ok "(community build prepared for this game - stock UE4SS cannot scan it)"
+        install_ue4ss_from_zip "$BUNDLED_ZIP"
+    elif [[ "$NO_PROMPT" -eq 0 && -t 0 ]]; then
+        echo "    No bundled UE4SS found. Get the community build from the game's"
+        echo "    Nexus Mods page (free account required):"
+        echo "        https://www.nexusmods.com/echoesofaincrad   (search: UE4SS)"
         echo "    Download it now, then come back here."
         read -r -p "Paste the full path to the downloaded zip (Enter to abort): " ZIP_INPUT
         # Strip surrounding quotes that file managers love to add.
@@ -346,7 +356,7 @@ else
         [[ -n "$ZIP_INPUT" ]] || die "Aborted. Re-run this installer once you have the zip."
         install_ue4ss_from_zip "$ZIP_INPUT"
     else
-        die "Re-run with --zip <that-file> once downloaded (or --experimental for the stock experimental build)."
+        die "No bundled UE4SS found. Re-run with --zip <file> (community build from nexusmods.com/echoesofaincrad) or --experimental."
     fi
 fi
 
@@ -494,7 +504,35 @@ if [[ "$ROLE" == "host" ]]; then
         echo "      (couldn't list IPs - run 'ip addr' and look for 192.168.x.x / 100.x.y.z)"
     fi
     echo
-    echo "If you run a firewall, open the port:  sudo ufw allow 7777/udp"
+    printf '\033[36mHOST checklist:\033[0m\n'
+    echo "  [1] Same network: give your partner the LAN address above (192.168.x / 10.x)."
+    echo "      Different networks: use the Tailscale 100.x address instead."
+    printf '  [2] Inbound UDP 7777 on this PC: '
+    if command -v ufw >/dev/null 2>&1; then
+        UFW_OUT="$(ufw status 2>/dev/null || true)"
+        if printf '%s' "$UFW_OUT" | grep -qi 'inactive'; then
+            echo "OK (ufw is inactive - nothing blocks)"
+        elif printf '%s' "$UFW_OUT" | grep -q '7777'; then
+            echo "OK (ufw rule found)"
+        elif [[ -z "$UFW_OUT" ]]; then
+            echo "unknown (reading ufw needs sudo)"
+            echo "      If ufw is enabled, allow the port:  sudo ufw allow 7777/udp"
+        else
+            echo "MISSING - run:  sudo ufw allow 7777/udp"
+        fi
+    elif command -v firewall-cmd >/dev/null 2>&1; then
+        if firewall-cmd --list-ports 2>/dev/null | grep -q '7777/udp'; then
+            echo "OK (firewalld rule found)"
+        else
+            echo "check firewalld - run:  sudo firewall-cmd --add-port=7777/udp"
+        fi
+    else
+        echo "OK (no ufw/firewalld detected - likely nothing blocks)"
+    fi
+    echo "  [3] After pressing F7 in-game, confirm the server is actually listening:"
+    echo "        ss -uln | grep 7777"
+    echo "  [4] Your partner (the guest) needs NO firewall changes on their side -"
+    echo "      outbound connections and their replies are allowed automatically."
 elif [[ "$ROLE" == "guest" ]]; then
     printf '\033[36mThis PC is the GUEST. Your play steps:\033[0m\n'
     echo "  1. Launch the game; wait for the UE4SS console window to print"
@@ -507,6 +545,8 @@ elif [[ "$ROLE" == "guest" ]]; then
         echo "     No host IP saved yet - re-run this installer when you have it, or"
         echo "     type it in-game in the console (F10):  coop_join <the-hosts-ip>"
     fi
+    echo "  No firewall changes are needed on this PC - guests connect outbound,"
+    echo "  which is allowed automatically. Only the HOST opens a port."
 else
     echo "Then:"
     echo "  1. Launch the game. A UE4SS console window should appear and print"

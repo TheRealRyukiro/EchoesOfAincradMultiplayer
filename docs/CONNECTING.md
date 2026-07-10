@@ -3,6 +3,16 @@
 The joiner's game connects directly to the host on **UDP port 7777**. All you
 need is an IP address the joiner can reach.
 
+## Who opens what (firewalls)
+
+Only the **HOST** ever needs a firewall allowance — inbound UDP 7777 on the
+host PC (the installers check this and help set it up). The **GUEST needs
+nothing**: they make an *outbound* connection, which Windows/Linux firewalls
+and home routers allow by default, and stateful firewalls automatically
+accept the reply traffic on that same flow. If a join times out, the guest's
+firewall is essentially never the reason — check the IP and the host side
+first.
+
 ## Option A — same house / same Wi-Fi (easiest)
 
 1. On the **host** PC, find its LAN IP (usually `192.168.x.x`):

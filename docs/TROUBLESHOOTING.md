@@ -65,18 +65,20 @@ even on current UE4SS builds. Fixes, in order of preference:
 
    (Both installers also default to 5.3 for this game now.)
 
-2. **Use the community UE4SS package adapted for this game.** The game's
-   [Nexus Mods page](https://www.nexusmods.com/echoesofaincrad) hosts a
-   "UE4SS" package prepared for this exact binary (free Nexus account needed
-   to download). Then deploy it — the installer finds the payload no matter
-   how the zip is nested, and re-applies the mod and settings on top:
+2. **Use the community UE4SS package adapted for this game.** A copy is
+   bundled in this repo as `UE4SS_5_3_2.zip`, and the installers use it
+   automatically when UE4SS is missing. To *replace* a broken existing
+   install with it, pass it explicitly:
 
    ```bash
-   ./tools/install.sh --zip ~/Downloads/<that-package>.zip
+   ./tools/install.sh --zip UE4SS_5_3_2.zip
    ```
    ```powershell
-   powershell -ExecutionPolicy Bypass -File tools\install.ps1 -UE4SSZip "<that-package>.zip"
+   powershell -ExecutionPolicy Bypass -File tools\install.ps1 -UE4SSZip "UE4SS_5_3_2.zip"
    ```
+
+   (Upstream source: the "UE4SS" package on the game's
+   [Nexus Mods page](https://www.nexusmods.com/echoesofaincrad).)
 
 3. **Custom signature files** as a last resort — see
    [`ue4ss-config/README.md`](../ue4ss-config/README.md). Working signatures

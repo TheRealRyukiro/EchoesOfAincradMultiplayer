@@ -261,16 +261,24 @@ if ($SkipUE4SS) {
     Write-Ok "(replace it explicitly with -UE4SSZip <file> or -Experimental if ever needed)"
 } else {
     Write-Step "UE4SS (the mod loader) is not installed yet."
-    Write-Host "    Stock UE4SS cannot scan this game's binary; use the community build"
-    Write-Host "    from the game's Nexus Mods page (free account required):"
-    Write-Host "        https://www.nexusmods.com/echoesofaincrad   (search: UE4SS)"
-    if (-not $NoPrompt) {
+    # A game-ready UE4SS build ships with this repo/download, so the normal
+    # path needs no extra downloads and no questions.
+    $bundled = Get-ChildItem -Path $RepoRoot -Filter 'UE4SS*.zip' -File -ErrorAction SilentlyContinue |
+        Sort-Object Name | Select-Object -First 1
+    if ($bundled) {
+        Write-Ok "Installing the UE4SS build bundled with this download: $($bundled.Name)"
+        Write-Ok "(community build prepared for this game - stock UE4SS cannot scan it)"
+        Install-UE4SSFromZip $bundled.FullName
+    } elseif (-not $NoPrompt) {
+        Write-Host "    No bundled UE4SS found. Get the community build from the game's"
+        Write-Host "    Nexus Mods page (free account required):"
+        Write-Host "        https://www.nexusmods.com/echoesofaincrad   (search: UE4SS)"
         Write-Host "    Download it now, then come back here."
         $zipInput = (Read-Host "Paste the full path to the downloaded zip (Enter to abort)").Trim().Trim('"').Trim("'")
         if (-not $zipInput) { throw "Aborted. Re-run this installer once you have the zip." }
         Install-UE4SSFromZip $zipInput
     } else {
-        throw "Re-run with -UE4SSZip <that-file> once downloaded (or -Experimental for the stock experimental build)."
+        throw "No bundled UE4SS found. Re-run with -UE4SSZip <file> (community build from nexusmods.com/echoesofaincrad) or -Experimental."
     }
 }
 
@@ -424,23 +432,44 @@ if ($Role -match '^(?i)host$') {
         Write-Host "      (couldn't list IPs - run 'ipconfig' and read the IPv4 Address line)"
     }
     Write-Host ""
-    $existingRule = $null
-    try { $existingRule = Get-NetFirewallRule -DisplayName 'AincradTogether UDP 7777' -ErrorAction SilentlyContinue } catch { }
-    if ($existingRule) {
-        Write-Ok "Windows Firewall already allows UDP 7777."
-    } elseif (-not $NoPrompt) {
-        $fw = Read-Host "Open UDP 7777 in Windows Firewall so your partner can connect? (y/N)"
-        if ($fw -match '^(?i)y') {
-            try {
-                New-NetFirewallRule -DisplayName 'AincradTogether UDP 7777' -Direction Inbound `
-                    -Protocol UDP -LocalPort 7777 -Action Allow -Profile Any | Out-Null
-                Write-Ok "Firewall rule added."
-            } catch {
-                Write-Warn2 "Couldn't add the rule (needs an Administrator PowerShell). Alternative:"
-                Write-Warn2 "just click 'Allow' when Windows asks the first time you host."
+    Write-Host "HOST checklist:" -ForegroundColor Cyan
+    Write-Host "  [1] Same network: give your partner the LAN address above (192.168.x / 10.x)."
+    Write-Host "      Different networks: use the Tailscale 100.x address instead."
+    $fwStatus = 'unknown'
+    try {
+        $profilesOn = @(Get-NetFirewallProfile -ErrorAction Stop | Where-Object { $_.Enabled })
+        if ($profilesOn.Count -eq 0) { $fwStatus = 'off' }
+        elseif (Get-NetFirewallRule -DisplayName 'AincradTogether UDP 7777' -ErrorAction SilentlyContinue) { $fwStatus = 'rule' }
+        else { $fwStatus = 'norule' }
+    } catch { }
+    switch ($fwStatus) {
+        'off'  { Write-Host "  [2] Inbound UDP 7777: OK (Windows Firewall is off - nothing blocks)" }
+        'rule' { Write-Host "  [2] Inbound UDP 7777: OK (firewall rule present)" }
+        'norule' {
+            Write-Host "  [2] Inbound UDP 7777: NO RULE yet."
+            if (-not $NoPrompt) {
+                $fw = Read-Host "      Add the Windows Firewall rule now? (y/N)"
+                if ($fw -match '^(?i)y') {
+                    try {
+                        New-NetFirewallRule -DisplayName 'AincradTogether UDP 7777' -Direction Inbound `
+                            -Protocol UDP -LocalPort 7777 -Action Allow -Profile Any | Out-Null
+                        Write-Ok "Firewall rule added."
+                    } catch {
+                        Write-Warn2 "Couldn't add it (needs an Administrator PowerShell)."
+                        Write-Warn2 "Alternative: click 'Allow' when Windows asks the first time you host."
+                    }
+                }
+            } else {
+                Write-Host "      From an Administrator PowerShell:"
+                Write-Host "      New-NetFirewallRule -DisplayName 'AincradTogether UDP 7777' -Direction Inbound -Protocol UDP -LocalPort 7777 -Action Allow"
             }
         }
+        default { Write-Host "  [2] Inbound UDP 7777: couldn't read firewall state - click 'Allow' if Windows asks when you host." }
     }
+    Write-Host "  [3] After pressing F7 in-game, confirm the server is actually listening:"
+    Write-Host "        netstat -an | findstr 7777"
+    Write-Host "  [4] Your partner (the guest) needs NO firewall changes on their side -"
+    Write-Host "      outbound connections and their replies are allowed automatically."
 } elseif ($Role -match '^(?i)guest$') {
     Write-Host "This PC is the GUEST. Your play steps:" -ForegroundColor Cyan
     Write-Host "  1. Launch the game through Steam; wait for the UE4SS console window"
@@ -453,6 +482,8 @@ if ($Role -match '^(?i)host$') {
         Write-Host "     No host IP saved yet - re-run this installer when you have it, or"
         Write-Host "     type it in-game in the console (F10):  coop_join <the-hosts-ip>"
     }
+    Write-Host "  No firewall changes are needed on this PC - guests connect outbound,"
+    Write-Host "  which is allowed automatically. Only the HOST opens a port."
 } else {
     Write-Host "Next steps:"
     Write-Host "  1. Launch the game through Steam. A UE4SS console window should appear"
