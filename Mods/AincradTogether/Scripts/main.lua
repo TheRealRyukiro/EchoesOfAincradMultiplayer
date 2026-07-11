@@ -27,7 +27,7 @@
 local Config = require("config")
 
 local MOD_NAME = "AincradTogether"
-local MOD_VERSION = "0.1.5"
+local MOD_VERSION = "0.2.0-dev"
 
 -- ----------------------------------------------------------------------------
 -- State
@@ -44,6 +44,14 @@ local State = {
     LastMapPath = nil,         -- for the map-change watcher
     UnpauseLogged = false,     -- log the first auto-unpause per session only
     RefreshDueAt = nil,        -- os.time() when a one-time post-travel refresh runs
+    -- Session resilience (v0.2):
+    LastJoinAddress = nil,     -- last address we joined, for auto-reconnect
+    WasConnected = false,      -- guest: we saw the host's PlayerState at least once
+    LastRemoteCount = 0,       -- host: remote players seen last tick
+    ReconnectDueAt = nil,      -- os.time() of the next auto-reconnect attempt
+    ReconnectAttemptsLeft = nil,
+    RehostDueAt = nil,         -- os.time() when the host auto-re-hosts after travel
+    SelfTravelUntil = nil,     -- map changes before this time are our own doing
 }
 
 -- Object scans (FindAllOf) walk the entire engine object array - expensive
@@ -550,6 +558,147 @@ local function GoToPartner()
 end
 
 -- ----------------------------------------------------------------------------
+-- Nameplates: floating names above other players (v0.2)
+--
+-- Targeting is symmetric on host and guest: every PlayerState except the
+-- local one belongs to another human, and its reflected PawnPrivate property
+-- points at their body. Each such pawn gets an engine TextRenderActor
+-- attached above its head (KeepWorld attachment preserves the offset while
+-- the pawn moves), refreshed once per master tick.
+-- ----------------------------------------------------------------------------
+
+local Nameplates = {
+    ByPawn = {},        -- pawn full name -> { Plate = TextRenderActor, Pawn = pawn }
+    Broken = false,     -- hard spawn failure: feature disables itself
+}
+
+local EATTACH_RULE_KEEP_WORLD = 1        -- EAttachmentRule::KeepWorld
+local ESPAWN_ALWAYS_SPAWN = 1            -- ESpawnActorCollisionHandlingMethod::AlwaysSpawn
+
+local function DestroyNameplate(Entry)
+    pcall(function()
+        if Entry.Plate and Entry.Plate:IsValid() then
+            Entry.Plate:K2_DestroyActor()
+        end
+    end)
+end
+
+local function DestroyAllNameplates()
+    for _, Entry in pairs(Nameplates.ByPawn) do
+        DestroyNameplate(Entry)
+    end
+    Nameplates.ByPawn = {}
+end
+
+local function SpawnNameplate(Pawn, Name)
+    local GS = GetGameplayStatics()
+    local PC = GetLocalPlayerController()
+    local PlateClass = StaticFindObject("/Script/Engine.TextRenderActor")
+    if not (GS and PC and PlateClass and PlateClass:IsValid()) then return nil end
+
+    local Ok, PlateOrErr = pcall(function()
+        local Loc = Pawn:K2_GetActorLocation()
+        local Transform = {
+            Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
+            Translation = { X = Loc.X, Y = Loc.Y, Z = Loc.Z + (Config.NameplateHeight or 120) },
+            Scale3D = { X = 1, Y = 1, Z = 1 },
+        }
+        local Plate = GS:BeginDeferredActorSpawnFromClass(PC, PlateClass, Transform, ESPAWN_ALWAYS_SPAWN, PC)
+        if not (Plate and Plate:IsValid()) then error("spawn returned nothing") end
+        GS:FinishSpawningActor(Plate, Transform)
+        Plate:K2_AttachToActor(Pawn, "None",
+            EATTACH_RULE_KEEP_WORLD, EATTACH_RULE_KEEP_WORLD, EATTACH_RULE_KEEP_WORLD, false)
+        local TextComp = Plate.TextRender
+        if TextComp and TextComp:IsValid() then
+            local AsText = MakeText(Name)
+            if AsText then TextComp:SetText(AsText) end
+            pcall(function() TextComp:SetHorizontalAlignment(1) end) -- EHTA_Center
+            pcall(function() TextComp:SetWorldSize(Config.NameplateSize or 24) end)
+            pcall(function() TextComp:SetTextRenderColor({ R = 255, G = 235, B = 130, A = 255 }) end)
+        end
+        return Plate
+    end)
+
+    if not Ok or not PlateOrErr then
+        if not Nameplates.Broken then
+            Nameplates.Broken = true
+            Log("Nameplates unavailable on this build (" .. tostring(PlateOrErr) .. ") - feature disabled.")
+            Log("(Everything else keeps working. Set Config.Nameplates = false to silence.)")
+        end
+        return nil
+    end
+    return PlateOrErr
+end
+
+local function UpdateNameplates()
+    if Nameplates.Broken or Config.Nameplates == false then return end
+    if not (State.Hosting or State.Joining) then
+        if next(Nameplates.ByPawn) then DestroyAllNameplates() end
+        return
+    end
+
+    local LocalPC = GetLocalPlayerController()
+    if not LocalPC then return end
+    local LocalPSName = nil
+    pcall(function()
+        local PS = LocalPC.PlayerState
+        if PS and PS:IsValid() then LocalPSName = PS:GetFullName() end
+    end)
+
+    -- Which pawns should carry a plate right now?
+    local Wanted = {} -- pawn full name -> { Pawn = pawn, Name = player name }
+    for _, PS in ipairs(Cache.PlayerStates) do
+        pcall(function()
+            if not PS:IsValid() then return end
+            if LocalPSName and PS:GetFullName() == LocalPSName then return end
+            local Pawn = PS.PawnPrivate
+            if Pawn and Pawn:IsValid() then
+                Wanted[Pawn:GetFullName()] = { Pawn = Pawn, Name = GetPlayerStateName(PS) }
+            end
+        end)
+    end
+
+    -- Drop plates whose pawn vanished or is no longer another player's.
+    for PawnName, Entry in pairs(Nameplates.ByPawn) do
+        local PawnAlive, PlateAlive = false, false
+        pcall(function() PawnAlive = Entry.Pawn:IsValid() end)
+        pcall(function() PlateAlive = Entry.Plate:IsValid() end)
+        if not Wanted[PawnName] or not PawnAlive or not PlateAlive then
+            DestroyNameplate(Entry)
+            Nameplates.ByPawn[PawnName] = nil
+        end
+    end
+
+    -- Create missing plates.
+    for PawnName, Want in pairs(Wanted) do
+        if not Nameplates.ByPawn[PawnName] then
+            local Plate = SpawnNameplate(Want.Pawn, Want.Name)
+            if Plate then
+                Nameplates.ByPawn[PawnName] = { Plate = Plate, Pawn = Want.Pawn }
+                Verbose("Nameplate created for " .. Want.Name)
+            end
+            if Nameplates.Broken then return end
+        end
+    end
+
+    -- Turn the text toward the local camera (yaw only), best-effort.
+    pcall(function()
+        local Cam = LocalPC.PlayerCameraManager
+        if not (Cam and Cam:IsValid()) then return end
+        local CamLoc = Cam:GetCameraLocation()
+        for _, Entry in pairs(Nameplates.ByPawn) do
+            pcall(function()
+                if Entry.Plate:IsValid() then
+                    local Loc = Entry.Plate:K2_GetActorLocation()
+                    local Yaw = math.deg(math.atan(CamLoc.Y - Loc.Y, CamLoc.X - Loc.X))
+                    Entry.Plate:K2_SetActorRotation({ Pitch = 0, Yaw = Yaw, Roll = 0 }, false)
+                end
+            end)
+        end
+    end)
+end
+
+-- ----------------------------------------------------------------------------
 -- Host-side fixup #1: spawn bodies for players that have none
 -- ----------------------------------------------------------------------------
 
@@ -720,7 +869,10 @@ local function HostSession()
     State.UnpauseLogged = false
     -- The ?listen reload keeps the same map path, so the map-change watcher
     -- won't fire: schedule the one-time post-travel cache refresh explicitly.
+    -- Also mark the upcoming travel as self-inflicted so the auto-rehost
+    -- logic never reacts to its own reload.
     State.RefreshDueAt = (os.time and os.time() or 0) + 3
+    State.SelfTravelUntil = (os.time and os.time() or 0) + 30
     if RunConsoleCommand("open " .. Map .. "?listen") then
         StartHostFixers()
     else
@@ -753,6 +905,11 @@ local function JoinSession(Address)
     State.Hosting = false
     State.SessionStart = os.time and os.time() or nil
     State.RefreshDueAt = (os.time and os.time() or 0) + 5
+    -- Resilience bookkeeping: remember where we're going for auto-reconnect,
+    -- mark the connect travel as self-inflicted, reset connected-ness.
+    State.LastJoinAddress = Address
+    State.WasConnected = false
+    State.SelfTravelUntil = (os.time and os.time() or 0) + 30
     RunConsoleCommand("open " .. Address)
 end
 
@@ -761,6 +918,13 @@ local function StopSession()
     State.Hosting = false
     State.Joining = false
     State.SessionStart = nil
+    -- Cancel any pending resilience work: leaving is intentional.
+    State.ReconnectDueAt = nil
+    State.ReconnectAttemptsLeft = nil
+    State.RehostDueAt = nil
+    State.WasConnected = false
+    State.LastRemoteCount = 0
+    State.SelfTravelUntil = (os.time and os.time() or 0) + 30
     RunConsoleCommand("disconnect")
 end
 
@@ -841,14 +1005,31 @@ local function CheckMapChange()
     if not Previous then return end -- first observation, not a change
 
     Verbose("Map changed: " .. Previous .. " -> " .. Map)
+    local Now = os.time and os.time() or 0
+    local SelfTravel = State.SelfTravelUntil and Now < State.SelfTravelUntil
+
     if State.Hosting then
         Log("Map changed while hosting. If the game itself triggered this (story/floor")
         Log("transition), the co-op session may have been dropped: have your partner run")
         Log("coop_status - and if they're gone, press " .. tostring(Config.Keybinds.Host) ..
             " to re-host, then they rejoin with " .. tostring(Config.Keybinds.Join) .. ".")
+        -- Auto-rehost (v0.2): a game-initiated travel with a partner attached
+        -- almost certainly dropped the session; re-open it automatically.
+        if Config.AutoRehost and not SelfTravel and (State.LastRemoteCount or 0) > 0 then
+            State.RehostDueAt = Now + 5
+            Log("Auto-rehost armed: re-opening the session in ~5s (Config.AutoRehost).")
+        end
     elseif State.Joining then
         Log("Map changed. If you were kicked to the main menu, the host's session ended")
         Log("or the connection dropped - press " .. tostring(Config.Keybinds.Join) .. " to rejoin.")
+        -- Auto-reconnect (v0.2): only after we were genuinely connected, and
+        -- never for our own connect travel.
+        if Config.AutoReconnect and State.WasConnected and not SelfTravel and State.LastJoinAddress then
+            State.ReconnectAttemptsLeft = Config.AutoReconnectAttempts or 3
+            State.ReconnectDueAt = Now + (Config.AutoReconnectDelayS or 8)
+            State.WasConnected = false
+            Log("Auto-reconnect armed: retrying " .. State.LastJoinAddress .. " shortly (Config.AutoReconnect).")
+        end
     end
 end
 
@@ -942,7 +1123,45 @@ LoopAsync(Config.HudIntervalMs or 1000, function()
         end
         pcall(ProcessPendingControllers)
         pcall(ProcessPendingPawns)
+
+        -- Session resilience (v0.2): connected-ness tracking + deferred
+        -- rehost/reconnect execution.
+        pcall(function()
+            if State.Hosting then
+                State.LastRemoteCount = #GetRemoteControllers()
+            elseif State.Joining and #Cache.PlayerStates > 1 then
+                State.WasConnected = true
+            end
+
+            if State.RehostDueAt and Now >= State.RehostDueAt then
+                State.RehostDueAt = nil
+                if State.Hosting then
+                    Log("Auto-rehost: re-opening the co-op session after the map change...")
+                    HostSession()
+                end
+            end
+
+            if State.ReconnectDueAt and Now >= State.ReconnectDueAt then
+                State.ReconnectDueAt = nil
+                if not State.Joining then
+                    State.ReconnectAttemptsLeft = nil
+                elseif State.WasConnected then
+                    Log("Auto-reconnect: connection re-established.")
+                    State.ReconnectAttemptsLeft = nil
+                elseif (State.ReconnectAttemptsLeft or 0) > 0 then
+                    State.ReconnectAttemptsLeft = State.ReconnectAttemptsLeft - 1
+                    Log("Auto-reconnect: rejoining " .. tostring(State.LastJoinAddress) ..
+                        " (" .. tostring(State.ReconnectAttemptsLeft) .. " attempts left after this)...")
+                    JoinSession(State.LastJoinAddress)
+                    State.ReconnectDueAt = Now + (Config.AutoReconnectDelayS or 8)
+                else
+                    Log("Auto-reconnect gave up. Press " .. tostring(Config.Keybinds.Join) .. " to retry manually.")
+                end
+            end
+        end)
+
         pcall(UpdateHud)
+        pcall(UpdateNameplates)
         pcall(CheckMapChange)
     end)
     return false -- never stops

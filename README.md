@@ -36,6 +36,8 @@ trip (Denuvo anti-tamper does not object to runtime mods like UE4SS).
 | Second player gets a body spawned automatically | ✅ automatic fixer + `coop_fixspawns`, spawns next to the host |
 | Corner watermark with the mod version, session HUD with live ping (ms) | ✅ F6 toggles; console fallback if widget creation fails — `coop_ping`/`coop_status` always work |
 | Teleport to each other | ✅ `coop_warp` / `coop_goto` (host runs them) |
+| Names floating above players' heads | 🧪 v0.2 branch, awaiting first in-game test |
+| Auto-reconnect (guest) / auto-rehost after story travel (host) | 🧪 v0.2 branch, awaiting first in-game test |
 | Host's menus don't freeze the partner's world | ✅ pause guard while a partner is connected |
 | NPCs/enemies visible and moving for the joining player | 🟡 forced at runtime, host-authoritative |
 | Combat damage/health synced between players | ❌ not yet — see [docs/ROADMAP.md](docs/ROADMAP.md) |
@@ -119,6 +121,7 @@ Mods/AincradTogether/Scripts/config.lua  user settings (IP, keys, fixer toggles)
 tools/install.ps1                        guided installer (Windows)
 tools/install.sh                         guided installer (Linux/Proton)
 tools/diagnose.sh                        install health check + repair (Linux)
+tools/diagnose.ps1                       install health check + repair (Windows)
 ue4ss-config/                            game-specific UE4SS fixes & signature
                                          templates (see its README)
 docs/                                    install, connecting, troubleshooting,

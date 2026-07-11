@@ -1,14 +1,15 @@
 # Troubleshooting
 
-**On Linux, start here:** launch the game once, quit, then run
+**Start here:** launch the game once, quit, then run the doctor script for
+your OS — it checks the whole chain and prints a verdict; paste its full
+output when asking for help.
 
 ```bash
-./tools/diagnose.sh
+./tools/diagnose.sh          # Linux
 ```
-
-It checks the whole chain (UE4SS files → launch options → `UE4SS.log` → mod
-banner) and prints a verdict telling you which link is broken. Paste its full
-output when asking for help.
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\diagnose.ps1   # Windows
+```
 
 Otherwise work top to bottom — each section assumes the previous ones pass.
 When you're stuck, the two artifacts that diagnose almost everything are the

@@ -33,6 +33,11 @@ controller `BP_RODWorldPlayerController_C`, engine branch
 - Pin those classes in `main.lua` instead of relying on generic
   `RestartPlayer` behavior.
 - Fix the on-screen HUD on this game (currently console fallback).
+
+**In development on the `feature/v0.2-roadmap` branch (untested in-game):**
+nameplates over players' heads, session resilience (guest auto-reconnect +
+host auto-rehost after story/floor travel), and `tools/diagnose.ps1` (the
+Windows doctor script).
 - Carry the joiner's character-creator appearance onto their spawned pawn
   (read their save's customization data, apply to the pawn's mesh components).
 - Handle map travel: when the host changes floors, bring the joiner along

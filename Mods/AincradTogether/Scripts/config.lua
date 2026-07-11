@@ -89,6 +89,34 @@ Config.ReplicationSweepIntervalMs = 30000
 Config.KeepWorldRunning = true
 
 -- ---------------------------------------------------------------------------
+-- Nameplates (v0.2)
+-- ---------------------------------------------------------------------------
+
+-- Floating name above other players' heads. If plate creation fails on this
+-- game build, the feature logs once and disables itself for the session.
+Config.Nameplates = true
+
+-- How far above the character the name floats (Unreal units, ~cm), and the
+-- world-space text size.
+Config.NameplateHeight = 120
+Config.NameplateSize = 24
+
+-- ---------------------------------------------------------------------------
+-- Session resilience (v0.2)
+-- ---------------------------------------------------------------------------
+
+-- Guest: if the connection drops after you were genuinely connected, retry
+-- the last address automatically.
+Config.AutoReconnect = true
+Config.AutoReconnectAttempts = 3
+Config.AutoReconnectDelayS = 8
+
+-- Host: if the game itself changes maps (story/floor travel) while a partner
+-- is connected, re-open the session automatically a few seconds after the
+-- new map loads. The partner's auto-reconnect then brings them back.
+Config.AutoRehost = true
+
+-- ---------------------------------------------------------------------------
 -- Debugging
 -- ---------------------------------------------------------------------------
 

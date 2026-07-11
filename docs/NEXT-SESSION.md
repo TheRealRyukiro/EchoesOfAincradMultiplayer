@@ -112,3 +112,24 @@ step.
   instructions to Tommy; any installer edit: `bash -n` + fake-game-tree run
   (pattern used throughout: create `.../Binaries/Win64/Fake-Win64-Shipping.exe`
   in scratch, run installer with `--game-path`).
+
+## Addendum: feature/v0.2-roadmap branch (built after this plan, untested)
+
+A development branch `feature/v0.2-roadmap` exists with three features built
+blind against engine classes, all config-gated and self-disabling on failure
+(mod version reads `0.2.0-dev` in the watermark):
+
+- **Nameplates** over other players' heads (`Config.Nameplates`,
+  TextRenderActor attached above the pawn, name from PlayerState).
+- **Session resilience**: guest auto-reconnect after a drop
+  (`Config.AutoReconnect`, 3 attempts, 8s apart) and host auto-rehost ~5s
+  after game-initiated map travel (`Config.AutoRehost`) — together they
+  should make floor transitions survivable without manual F7/F8.
+- **`tools/diagnose.ps1`** — Windows doctor script (first live run pending;
+  flags the guest-still-has-127.0.0.1 mistake, checks firewall, analyzes
+  UE4SS.log).
+
+Testing order next session: FIRST validate stable v0.1.5 from `main`
+(baseline), THEN `git checkout feature/v0.2-roadmap && ./tools/install.sh`
+and re-test. Merge the branch to main only after the features survive a real
+two-PC session.
