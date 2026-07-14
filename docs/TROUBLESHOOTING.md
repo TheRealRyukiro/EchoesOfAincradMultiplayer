@@ -210,6 +210,74 @@ copies of the game from one account, so there's no single-PC join test).
   (Linux) or `%LOCALAPPDATA%\EchoesofAincrad\Saved\Logs\` (Windows) along
   with `UE4SS.log`.
 
+## Host waits forever / the server never listens (the deep diagnosis)
+
+Symptoms: the host HUD says "waiting for your partner" indefinitely, the
+guest times out to the main menu with ping never resolving — **even with the
+right IP, open ports, and both PCs pinging each other.** The tell that
+separates this from every network problem: a *loopback* self-test also
+failing. Loopback (`127.0.0.1`) bypasses all firewalls and routers, so if
+even the host machine can't connect to itself, the listen server never
+actually opened UDP 7777.
+
+Work the ladder:
+
+1. **Is anything listening?** While hosting (after F7), from another
+   terminal on the host:
+
+   ```bash
+   ss -uln | grep 7777        # Linux host
+   ```
+   ```powershell
+   netstat -an | findstr 7777 # Windows host
+   ```
+
+   A line appearing = the server IS listening → your problem is packet
+   path after all (VPN adapter binding, router isolation — try
+   `sudo tcpdump -ni any udp port 7777` on the host during a join attempt).
+   Nothing = the engine refused/failed to listen → continue.
+
+2. **Ask the engine why.** The game writes its own log inside the Proton
+   prefix (Linux) or `%LOCALAPPDATA%` (Windows):
+
+   ```
+   .../compatdata/4148250/pfx/drive_c/users/steamuser/AppData/Local/EchoesofAincrad/Saved/Logs/EchoesofAincrad.log
+   %LOCALAPPDATA%\EchoesofAincrad\Saved\Logs\EchoesofAincrad.log
+   ```
+
+   `./tools/diagnose.sh` now prints the network lines from the newest log
+   automatically. Look for `LogNet: Listen` (attempted), any
+   `Failed to listen` / `Failed to init` / missing-NetDriver errors, or —
+   equally telling — **no LogNet lines at all** (the `?listen` option never
+   reached the net stack).
+
+3. **If the log shows a missing/failed NetDriver**, the game likely ships
+   without the standard net-driver config (single-player games sometimes
+   strip it). The engine merges a *user-level* config at startup, so you can
+   restore it without touching game files: create/edit
+   `...\EchoesofAincrad\Saved\Config\Windows\Engine.ini` (inside the same
+   `Saved` folder as the logs above) and add:
+
+   ```ini
+   [/Script/Engine.GameEngine]
+   +NetDriverDefinitions=(DefName="GameNetDriver",DriverClassName="/Script/OnlineSubsystemUtils.IpNetDriver",DriverClassNameFallback="/Script/OnlineSubsystemUtils.IpNetDriver")
+
+   [/Script/OnlineSubsystemUtils.IpNetDriver]
+   NetConnectionClassName="/Script/OnlineSubsystemUtils.IpConnection"
+
+   [URL]
+   Port=7777
+   ```
+
+   Restart the game, host again, and re-check step 1. If the log instead
+   shows the connection being *rejected* (PreLogin/GameSession denial),
+   report it — that's a game-code gate we hook differently.
+
+4. **Crashes while hosting**: the tail of that same game log right after a
+   crash (plus anything in `Saved\Crashes\`) names the culprit — paste it
+   when reporting. To isolate mod involvement, retest with
+   `Config.ForceReplication = false`, then `Config.KeepWorldRunning = false`.
+
 ## Joiner connects but is invisible / a floating camera
 
 This is the "no pawn" state the spawn fixer exists for:

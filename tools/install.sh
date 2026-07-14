@@ -378,6 +378,10 @@ if [[ "$UE4SS_DIR" != "$WIN64_DIR" ]]; then
         mv -f "$WIN64_DIR/UE4SS-settings.ini" "$WIN64_DIR/UE4SS-settings.ini.old-flat-layout"
         warn "Old flat-layout UE4SS-settings.ini renamed - the live settings file is ue4ss/UE4SS-settings.ini."
     fi
+    if [[ -f "$WIN64_DIR/UE4SS.log" ]]; then
+        mv -f "$WIN64_DIR/UE4SS.log" "$WIN64_DIR/UE4SS.log.old-flat-layout"
+        warn "Old flat-layout UE4SS.log renamed - the LIVE log is ue4ss/UE4SS.log (don't paste the stale one)."
+    fi
     if [[ -f "$WIN64_DIR/Mods/$MOD_NAME/Scripts/config.lua" ]]; then
         OLD_FLAT_CONFIG="$WIN64_DIR/Mods/$MOD_NAME/Scripts/config.lua"
     fi

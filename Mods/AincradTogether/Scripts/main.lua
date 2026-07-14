@@ -435,7 +435,13 @@ local function BuildHudText()
             table.insert(Lines, string.format("HOSTING - %d player(s) connected%s", #Remotes + 1, FormatSessionClock()))
         end
     elseif State.Joining then
-        table.insert(Lines, "CONNECTED" .. FormatSessionClock())
+        -- Honest wording: Joining is set the moment F8 is pressed; only call
+        -- it CONNECTED once the host's PlayerState has actually replicated.
+        if State.WasConnected then
+            table.insert(Lines, "CONNECTED" .. FormatSessionClock())
+        else
+            table.insert(Lines, "CONNECTING to " .. tostring(State.LastJoinAddress or Config.HostAddress) .. " ...")
+        end
     end
 
     -- Ping is measured by whichever machine is the server, so each side

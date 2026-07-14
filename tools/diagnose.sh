@@ -270,6 +270,27 @@ if [[ -n "$APPID" && -n "$STEAMAPPS_DIR" ]]; then
             break
         fi
     done
+
+    # Network deep-dive: when hosting "waits forever" and even loopback joins
+    # time out, the listen server most likely never opened its port. The
+    # engine says so in the game's own log - surface those lines.
+    GAME_LOG_DIR="$STEAMAPPS_DIR/compatdata/$APPID/pfx/drive_c/users/steamuser/AppData/Local/EchoesofAincrad/Saved/Logs"
+    NEWEST_GAME_LOG="$(ls -t "$GAME_LOG_DIR"/*.log 2>/dev/null | head -n 1)"
+    if [[ -n "$NEWEST_GAME_LOG" ]]; then
+        info "Game's newest own log: $NEWEST_GAME_LOG"
+        NET_LINES="$(grep -naE 'LogNet|NetDriver|Listen|LogTravel|TravelFailure|PendingNetGame|LogNetVersion' "$NEWEST_GAME_LOG" 2>/dev/null | tail -n 25 || true)"
+        if [[ -n "$NET_LINES" ]]; then
+            info "Engine network lines (last 25) - a failed 'listen' shows up here:"
+            printf '%s\n' "$NET_LINES" | sed 's/^/       /'
+        else
+            info "No network (LogNet/NetDriver/Listen) lines in that log."
+            note "If this log covers an F7 attempt, the engine never even TRIED to listen -"
+            note "see TROUBLESHOOTING: 'Host waits forever / the server never listens'."
+        fi
+        note "While hosting (after F7), also verify from another terminal:"
+        note "    ss -uln | grep 7777"
+        note "No line = nothing is listening = joins can never work, firewall or not."
+    fi
 fi
 
 LAUNCH_OPTS=""
@@ -309,6 +330,14 @@ UE4SS_LOG=""
 for cand in "$UE4SS_DIR/UE4SS.log" "$WIN64_DIR/UE4SS.log"; do
     [[ -f "$cand" ]] && UE4SS_LOG="$cand" && break
 done
+
+# Guard against the classic mix-up: a stale flat-layout log left over from an
+# old install sitting next to the live ue4ss/ one.
+if [[ "$UE4SS_DIR" != "$WIN64_DIR" && -f "$UE4SS_DIR/UE4SS.log" && -f "$WIN64_DIR/UE4SS.log" ]]; then
+    info "TWO UE4SS.log files exist. The LIVE one is: $UE4SS_DIR/UE4SS.log"
+    note "$WIN64_DIR/UE4SS.log is a stale leftover from the old flat-layout install."
+    note "Its timestamps give it away - never paste that one when reporting."
+fi
 
 echo
 if [[ -z "$UE4SS_LOG" ]]; then
